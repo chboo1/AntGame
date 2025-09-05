@@ -3,11 +3,13 @@
 
 
 class Player
-{};
+{
+};
 
 
 class RoundSettings
 {
     static RoundSettings* instance;
+    std::string mapFile;
 };
 #endif

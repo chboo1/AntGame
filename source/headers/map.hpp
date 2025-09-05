@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <chrono>
 #include "network.hpp"
 #ifndef MAP_HPP
 #define MAP_HPP
@@ -18,23 +19,28 @@ class Round
 {
     public:
     static Round*instance;
-    double secondsRunning = 0.0;
+    double secondsRunning;
+    std::chrono::steady_clock::time_point timeAtStart;
     double timeScale = 1.0; // Every non-native measure of seconds counts up by this number every real second
     unsigned char phase = 0; // 0 means not started
     Map*map;
+    Round();
     void open();
     void start();
     void step();
     void end();
+    void reset(); // Goes back to state after constructor but before open
 };
 
 class Map
 {
     public:
-    std::vector<Nest> nests;
+    std::vector<Nest*> nests;
     unsigned char nestc;
     Pos size;
     unsigned char** map;
+    Map(); // Uses RoundSettings::instance to get values
+    void init(); // Uses RoundSettings::instance to get values
     std::string encode(); // Returns a string that can be passed to decode() to copy this map.
     void decode(std::string); // Takes a string returned from encode() and copies that map to this instance.
     void prep(int); // Preps map before game. Assumes RoundSettings::instance is set.
@@ -45,12 +51,15 @@ class Nest
 {
     public:
     Map*parent;
-    unsigned int x;
-    unsigned int y;
+    Pos p;
     std::vector<Ant*> ants;
+    Nest();
+    Nest(Map*, Pos); // Takes a parent ptr and a position
+    Nest(Map*, Pos, int); // Takes a parent ptr, a position and an ant count
+    void init(Map*, Pos, int); // Takes a parent ptr, a position and an ant count
 };
 
-class AntCommand
+struct AntCommand
 {
     unsigned char cmd;
     unsigned long arg;
@@ -60,9 +69,14 @@ class Ant
 {
     public:
     Nest*parent;
-    unsigned int x;
-    unsigned int y;
+    Pos p;
+    unsigned char type;
+    Ant();
+    Ant(Nest*, Pos); // Takes a parent ptr and a position. Defaults to type = 0
+    Ant(Nest*, Pos, unsigned char); // Takes a parent ptr, a position and a type
+    void init(Nest*, Pos, unsigned char); // Takes a parent ptr, a position and a type
     std::vector<AntCommand> commands;
     void giveCommand(AntCommand);
+    void step(double);
 };
 #endif
