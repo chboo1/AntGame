@@ -36,14 +36,14 @@ class Map
 {
     public:
     std::vector<Nest*> nests;
-    unsigned char nestc;
     Pos size;
-    unsigned char** map;
+    unsigned char* map; // The raw map data. Should be size.x*size.y bytes. To access data at X, Y, index into this by [x+y*size.x].
     Map(); // Uses RoundSettings::instance to get values
     void init(); // Uses RoundSettings::instance to get values
     std::string encode(); // Returns a string that can be passed to decode() to copy this map.
     void decode(std::string); // Takes a string returned from encode() and copies that map to this instance.
-    void prep(int); // Preps map before game. Assumes RoundSettings::instance is set.
+    void freeMap();
+    ~Map();
 };
 
 
@@ -57,6 +57,8 @@ class Nest
     Nest(Map*, Pos); // Takes a parent ptr and a position
     Nest(Map*, Pos, int); // Takes a parent ptr, a position and an ant count
     void init(Map*, Pos, int); // Takes a parent ptr, a position and an ant count
+    void cleanup();
+    ~Nest();
 };
 
 struct AntCommand

@@ -11,5 +11,6 @@ class RoundSettings
 {
     static RoundSettings* instance;
     std::string mapFile;
+    bool isPlayer;
 };
 #endif

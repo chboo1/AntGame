@@ -2,6 +2,7 @@
 #include <chrono>
 #include <iostream>
 #include <vector>
+#include <stringstream>
 
 
 Round* Round::instance = nullptr;
@@ -42,15 +43,12 @@ Map::Map()
 }
 void Map::init() // Uses RoundSettings::instance to get values
 {
-    if (RoundSettings::instance == nullptr)
+    cleanup();
+    if (RoundSettings::instance == nullptr || RoundSettings::instance->isClient || RoundSettings::instance->mapFile == "")
     {
         return;
     }
-    if (RoundSettings::instance->mapFile == "")
-    {
-         return; // Neither of these statements are errors. Setting mapFile to an empty string is the proper way to cause this function to leave without changing anything. 
-    }
-    std::ifstream mapFile(RoundSettings::instance->mapFile, std::ios::in);
+    std::ifstream mapFile(RoundSettings::instance->mapFile, std::ios::in | std::ios::binary);
     if (!mapFile)
     {
         std::cerr << "The mapFile string points to a non-existent or protected file `" << mapFile << "'" << std::endl;
@@ -60,17 +58,74 @@ void Map::init() // Uses RoundSettings::instance to get values
     getline(mapFile, line);
     if (line.size() < 18)
     {
-        std::cerr << "Map string format invalid: Header line too small" << std::endl;
+        std::cerr << "Map string format invalid: Header line too small." << std::endl;
         return;
     }
+    Nest*n = nullptr;
+    Ant*a = nullptr;
+    try {
     size.x = (unsigned int)std::stoul(line.substr(0, 8), nullptr, 16);
     size.y = (unsigned int)std::stoul(line.substr(8, 8), nullptr, 16);
-    nestc = (unsigned char)std::stoul(line.substr(16, 2), nullptr, 16);
+    unsigned char nestc = (unsigned char)std::stoul(line.substr(16, 2), nullptr, 16);
     nests.reserve(nestc);
     for (unsigned char i = 0; i < nestc; i++)
     {
         getline(mapFile, line);
-        
+        if (line.length() < 18)
+        {
+            std::cerr << "Map string format invalid: Nest header line too small." << std::endl;
+            cleanup();
+            return;
+        }
+        n = new Nest;
+        n->p.x = (unsigned int)std::stoul(line.substr(0, 8), nullptr, 16);
+        n->p.y = (unsigned int)std::stoul(line.substr(8, 8), nullptr, 16);
+        unsigned char antc = (unsigned char)std::stoul(line.substr(16, 2), nullptr, 16);
+        n->parent = this;
+        n->ants.reserve(antc);
+        for (int j = 0; j < antc; j++)
+        {
+            getline(mapFile, line);
+            if (line.length() < 18)
+            {
+                std::cerr << "Map string format invalid: Ant data line is too small." << std::endl;
+                cleanup();
+                return;
+            }
+            a = new Ant;
+            a->p.x = (unsigned int)std::stoul(line.substr(0, 8), nullptr, 16);
+            a->p.y = (unsigned int)std::stoul(line.substr(8, 8), nullptr, 16);
+            a->type = (unsigned int)std::stoul(line.substr(16, 2), nullptr, 16);
+            a->parent = n;
+            n->ants.push_back(a);
+            a = nullptr;
+        }
+        nests.push_back(n);
+        n = nullptr;
+    }
+    // Actual map data
+    getline(mapFile, line);
+    if (line.length() != size.x * size.y)
+    {
+        std::cerr << "Map string format invalid: Raw map data is of the wrong size (should be " << size.x * size.y << ")" << std::endl;
+        cleanup();
+        return;
+    }
+    map = new unsigned char*[size.x*size.y];
+    line.copy((char*)map, std::string::npos);
+
+    } catch (std::invalid_argument const& error) {
+        std::cerr << "Map string format invalid: Hexadecimal numbers expected! Exception is " << error.what() << std::endl;
+        if (n != nullptr)
+        {
+            delete n;
+        }
+        if (a != nullptr)
+        {
+             delete a;
+        }
+        cleanup();
+        return;
     }
 }
 std::string Map::encode() // Returns a string that can be passed to decode() to copy this map.
@@ -78,9 +133,122 @@ std::string Map::encode() // Returns a string that can be passed to decode() to 
 }
 void Map::decode(std::string) // Takes a string returned from encode() and copies that map to this instance.
 {
+    cleanup();
+    std::stringstream mapFile(string);
+    if (!mapFile)
+    {
+        std::cerr << "The mapFile string points to a non-existent or protected file `" << mapFile << "'" << std::endl;
+        return;
+    }
+    std::string line = "";
+    getline(mapFile, line);
+    if (line.size() < 18)
+    {
+        std::cerr << "Map string format invalid: Header line too small." << std::endl;
+        return;
+    }
+    Nest*n = nullptr;
+    Ant*a = nullptr;
+    try {
+    size.x = (unsigned int)std::stoul(line.substr(0, 8), nullptr, 16);
+    size.y = (unsigned int)std::stoul(line.substr(8, 8), nullptr, 16);
+    unsigned char nestc = (unsigned char)std::stoul(line.substr(16, 2), nullptr, 16);
+    nests.reserve(nestc);
+    for (unsigned char i = 0; i < nestc; i++)
+    {
+        getline(mapFile, line);
+        if (line.length() < 18)
+        {
+            std::cerr << "Map string format invalid: Nest header line too small." << std::endl;
+            cleanup();
+            return;
+        }
+        n = new Nest;
+        n->p.x = (unsigned int)std::stoul(line.substr(0, 8), nullptr, 16);
+        n->p.y = (unsigned int)std::stoul(line.substr(8, 8), nullptr, 16);
+        unsigned char antc = (unsigned char)std::stoul(line.substr(16, 2), nullptr, 16);
+        n->parent = this;
+        n->ants.reserve(antc);
+        for (int j = 0; j < antc; j++)
+        {
+            getline(mapFile, line);
+            if (line.length() < 18)
+            {
+                std::cerr << "Map string format invalid: Ant data line is too small." << std::endl;
+                cleanup();
+                return;
+            }
+            a = new Ant;
+            a->p.x = (unsigned int)std::stoul(line.substr(0, 8), nullptr, 16);
+            a->p.y = (unsigned int)std::stoul(line.substr(8, 8), nullptr, 16);
+            a->type = (unsigned int)std::stoul(line.substr(16, 2), nullptr, 16);
+            a->parent = n;
+            n->ants.push_back(a);
+            a = nullptr;
+        }
+        nests.push_back(n);
+        n = nullptr;
+    }
+    // Actual map data
+    getline(mapFile, line);
+    if (line.length() != size.x * size.y)
+    {
+        std::cerr << "Map string format invalid: Raw map data is of the wrong size (should be " << size.x * size.y << ")" << std::endl;
+        cleanup();
+        return;
+    }
+    map = new unsigned char*[size.x*size.y];
+    line.copy((char*)map, std::string::npos);
+
+    } catch (std::invalid_argument const& error) {
+        std::cerr << "Map string format invalid: Hexadecimal numbers expected! Exception is " << error.what() << std::endl;
+        if (n != nullptr)
+        {
+            delete n;
+        }
+        if (a != nullptr)
+        {
+             delete a;
+        }
+        cleanup();
+        return;
+    }
 }
-void Map::prep(int) // Preps map before game. Assumes RoundSettings::instance is set.
+void Map::freeMap()
 {
+    if (map == nullptr)
+    {
+        return;
+    }
+    for (int x = 0; x < size.x; i++)
+    {
+        if (map[x] == nullptr)
+        {
+            continue;
+        }
+        delete[] map[x];
+    }
+    delete[] map;
+    map = nullptr;
+}
+void Map::cleanup()
+{
+    freeMap();
+    for (int i = 0; i < nests.size(); i++)
+    {
+        if (nests[i] == nullptr)
+        {
+            continue;
+        }
+        delete nests[i];
+    }
+    nests.clear();
+    size.x = 0;
+    size.y = 0;
+}
+Map::~Map()
+{
+    cleanup();
 }
 
 Nest::Nest()
@@ -94,6 +262,22 @@ Nest::Nest(Map*, Pos, int) // Takes a parent ptr, a position and an ant count
 }
 void Nest::init(Map*, Pos, int) // Takes a parent ptr, a position and an ant count
 {
+}
+void Nest::cleanup()
+{
+    for (int i = 0; i < ants.size(); i++)
+    {
+         if (ants[i] == nullptr)
+         {
+             continue;
+         }
+         delete ants[i];
+    }
+    ants.clear();
+}
+Nest::~Nest()
+{
+    cleanup();
 }
 
 Ant::Ant()
