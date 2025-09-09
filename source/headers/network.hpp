@@ -2,7 +2,7 @@
 #define NETWORK_HPP
 
 
-class Player
+class Player // TODO... eventually, I guess
 {
 };
 

@@ -67,17 +67,23 @@ struct AntCommand
     unsigned long arg;
 };
 
+
+#define ANTCOMMAND_GOTO 0
+#define ANTCOMMAND_TINTERACT 1
+#define ANTCOMMAND_AINTERACT 2
+
+
 class Ant
 {
     public:
     Nest*parent;
     Pos p;
     unsigned char type;
+    std::vector<AntCommand> commands;
     Ant();
     Ant(Nest*, Pos); // Takes a parent ptr and a position. Defaults to type = 0
     Ant(Nest*, Pos, unsigned char); // Takes a parent ptr, a position and a type
     void init(Nest*, Pos, unsigned char); // Takes a parent ptr, a position and a type
-    std::vector<AntCommand> commands;
     void giveCommand(AntCommand);
     void step(double);
 };

@@ -19,9 +19,11 @@ Round::Round()
 }
 void Round::open()
 {
+    // TODO
 }
 void Round::start()
 {
+    // TODO
 }
 void Round::step()
 {
@@ -32,9 +34,11 @@ void Round::step()
 }
 void Round::end()
 {
+    // TODO
 }
 void Round::reset() // Goes back to state after constructor but before open
 {
+    // TODO
 }
 
 
@@ -130,6 +134,7 @@ void Map::init() // Uses RoundSettings::instance to get values
 }
 std::string Map::encode() // Returns a string that can be passed to decode() to copy this map.
 {
+    // TODO
 }
 void Map::decode(std::string) // Takes a string returned from encode() and copies that map to this instance.
 {
@@ -254,14 +259,28 @@ Map::~Map()
 Nest::Nest()
 {
 }
-Nest::Nest(Map*, Pos) // Takes a parent ptr and a position
+Nest::Nest(Map* nparent, Pos npos) // Takes a parent ptr and a position
 {
+    init(nparent, npos, 0);
 }
-Nest::Nest(Map*, Pos, int) // Takes a parent ptr, a position and an ant count
+Nest::Nest(Map* nparent, Pos npos, int antc) // Takes a parent ptr, a position and an ant count
 {
+    init(nparent, npos, antc);
 }
-void Nest::init(Map*, Pos, int) // Takes a parent ptr, a position and an ant count
+void Nest::init(Map* nparent, Pos npos, int antc) // Takes a parent ptr, a position and an ant count
 {
+    parent = nparent;
+    p = npos;
+    if (antc != 0)
+    {
+        ants.reserve(antc);
+        for (int i = 0; i < antc; i++)
+        {
+            Ant*a = new Ant;
+            a->init(this, p, 0);
+            ants.push_back(a);
+        }
+    }
 }
 void Nest::cleanup()
 {
@@ -297,9 +316,12 @@ void Ant::init(Nest* nparent, Pos npos, unsigned char ntype) // Takes a parent p
     p = npos;
     type = ntype;
 }
-void Ant::giveCommand(AntCommand);
+void Ant::giveCommand(AntCommand com);
 {
+    // May need to be changed
+    commands.push_back(com); 
 }
 void Ant::step(double);
 {
+    // TODO
 }
