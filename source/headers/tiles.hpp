@@ -1,3 +1,4 @@
+#include <stdexcept>
 #ifndef TILES_HPP
 #define TILES_HPP
 

@@ -1,3 +1,4 @@
+#include <string>
 #ifndef SOCKETS_HPP
 #define SOCKETS_HPP
 
@@ -5,6 +6,7 @@
 #define ANTNET_UNIX
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <arpa/inet.h>
 
 #elif defined(_WIN32)
 #define ANTNET_WIN
@@ -15,7 +17,7 @@
 #pragma comment(lib, "Ws2_32.lib")
 
 #else
-#warning OS macros unix, apple and windows could not be found (I don't know what OS you use!). Proceeding under unix function. If you use windows, it will fail to compile.
+#warning "OS macros unix, apple and windows could not be found (I don't know what OS you use!). Proceeding under unix function. If you use windows, it will fail to compile."
 #define ANTNET_UNIX
 
 #endif
@@ -43,6 +45,9 @@ class Connection
     bool connected = false;
     public:
     void init();
+    #ifndef CLIENT
+    void _initServer(int);
+    #endif
     static void listen(int);
     void connect(std::string, int);
     void send(char*, size_t);

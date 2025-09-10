@@ -1,8 +1,9 @@
-#include "../headers/map.hpp"
+#include "map.hpp"
 #include <chrono>
 #include <iostream>
 #include <vector>
-#include <stringstream>
+#include <sstream>
+#include <fstream>
 
 
 Round* Round::instance = nullptr;
@@ -48,14 +49,14 @@ Map::Map()
 void Map::init() // Uses RoundSettings::instance to get values
 {
     cleanup();
-    if (RoundSettings::instance == nullptr || RoundSettings::instance->isClient || RoundSettings::instance->mapFile == "")
+    if (RoundSettings::instance == nullptr || RoundSettings::instance->isPlayer || RoundSettings::instance->mapFile == "")
     {
         return;
     }
     std::ifstream mapFile(RoundSettings::instance->mapFile, std::ios::in | std::ios::binary);
     if (!mapFile)
     {
-        std::cerr << "The mapFile string points to a non-existent or protected file `" << mapFile << "'" << std::endl;
+        std::cerr << "The mapFile string points to a non-existent or protected file `" << RoundSettings::instance->mapFile << "'" << std::endl;
         return;
     }
     std::string line = "";
@@ -115,7 +116,7 @@ void Map::init() // Uses RoundSettings::instance to get values
         cleanup();
         return;
     }
-    map = new unsigned char*[size.x*size.y];
+    map = new unsigned char[size.x*size.y];
     line.copy((char*)map, std::string::npos);
 
     } catch (std::invalid_argument const& error) {
@@ -135,14 +136,15 @@ void Map::init() // Uses RoundSettings::instance to get values
 std::string Map::encode() // Returns a string that can be passed to decode() to copy this map.
 {
     // TODO
+    return "";
 }
-void Map::decode(std::string) // Takes a string returned from encode() and copies that map to this instance.
+void Map::decode(std::string string) // Takes a string returned from encode() and copies that map to this instance.
 {
     cleanup();
     std::stringstream mapFile(string);
     if (!mapFile)
     {
-        std::cerr << "The mapFile string points to a non-existent or protected file `" << mapFile << "'" << std::endl;
+        std::cerr << "The mapFile string points to a non-existent or protected file `" << RoundSettings::instance->mapFile << "'" << std::endl;
         return;
     }
     std::string line = "";
@@ -202,7 +204,7 @@ void Map::decode(std::string) // Takes a string returned from encode() and copie
         cleanup();
         return;
     }
-    map = new unsigned char*[size.x*size.y];
+    map = new unsigned char[size.x*size.y];
     line.copy((char*)map, std::string::npos);
 
     } catch (std::invalid_argument const& error) {
@@ -224,14 +226,6 @@ void Map::freeMap()
     if (map == nullptr)
     {
         return;
-    }
-    for (int x = 0; x < size.x; i++)
-    {
-        if (map[x] == nullptr)
-        {
-            continue;
-        }
-        delete[] map[x];
     }
     delete[] map;
     map = nullptr;
@@ -316,12 +310,12 @@ void Ant::init(Nest* nparent, Pos npos, unsigned char ntype) // Takes a parent p
     p = npos;
     type = ntype;
 }
-void Ant::giveCommand(AntCommand com);
+void Ant::giveCommand(AntCommand com)
 {
     // May need to be changed
     commands.push_back(com); 
 }
-void Ant::step(double);
+void Ant::step(double)
 {
     // TODO
 }

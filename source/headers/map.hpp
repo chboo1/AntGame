@@ -1,12 +1,14 @@
 #include <iostream>
 #include <vector>
 #include <chrono>
+#include <string>
 #include "network.hpp"
 #ifndef MAP_HPP
 #define MAP_HPP
 
 class Pos
 {
+    public:
     unsigned int x;
     unsigned int y;
 };
@@ -43,6 +45,7 @@ class Map
     std::string encode(); // Returns a string that can be passed to decode() to copy this map.
     void decode(std::string); // Takes a string returned from encode() and copies that map to this instance.
     void freeMap();
+    void cleanup();
     ~Map();
 };
 
