@@ -2,6 +2,14 @@
 #ifndef SOCKETS_HPP
 #define SOCKETS_HPP
 
+#ifndef ANTNET_LISTEN_BACKLOG
+#define ANTNET_LISTEN_BACKLOG 16
+#endif
+
+#ifndef ANTNET_DEFAULT_PORT
+#define ANTNET_DEFAULT_PORT 55521
+#endif
+
 #if defined(unix) || defined(__APPLE__)
 #define ANTNET_UNIX
 #include <sys/socket.h>
@@ -25,34 +33,40 @@
 
 class Connection
 {
+    private:
 #ifdef ANTNET_WIN
 #ifndef CLIENT
     static SOCKET listenSock;
+    static bool listening;
 #endif
+    static int instances;
+    static bool started;
     static WSADATA wsadata;
-    static struct addrinfo peerAddress;
-    static std::string port;
     SOCKET sock;
 #elif defined(ANTNET_UNIX)
 #ifndef CLIENT
     static int listenSockfd;
-#endif
-    static struct sockaddr_in peerAddress;
-    int sockfd;
-    int port;
-#endif    
-    bool initiated = false;
-    bool connected = false;
     public:
-    void init();
+    Connection(int);
+    private:
+#endif
+    int sockfd = -1;
+#endif    
+    public:
+    Connection();
+    ~Connection();
+    static int port;
     #ifndef CLIENT
-    void _initServer(int);
+    static int fetchConnections(std::vector<Connection>*);
+    static void closeListen();
+    static bool openListen(int);
+    static bool listening();
     #endif
-    static void listen(int);
-    void connect(std::string, int);
-    void send(char*, size_t);
-    void recv(char*, size_t);
+    bool connectTo(std::string, int);
+    bool send(char*, size_t);
+    bool recv(char*, size_t);
     std::string readall();
-    void close();
+    void finish();
+    bool connected();
 };
 #endif

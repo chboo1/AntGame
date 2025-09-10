@@ -1,4 +1,5 @@
 #include <string>
+#include "sockets.hpp"
 #ifndef NETWORK_HPP
 #define NETWORK_HPP
 
@@ -14,6 +15,7 @@ class RoundSettings
     static RoundSettings* instance;
     std::string mapFile;
     bool isPlayer;
+    int port;
     RoundSettings();
 };
 #endif
