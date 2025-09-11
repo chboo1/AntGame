@@ -1,8 +1,12 @@
 LIBRARIES := $(wildcard source/lib/*.cpp)
-all: client server
+all: client server tests
 	echo All
 
 libs: out/*.o
+
+
+tests: libs tests.cpp
+	g++ out/*.o tests.cpp -Isource/headers -o tests
 
 
 client: libs

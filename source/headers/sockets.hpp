@@ -68,7 +68,7 @@ class Connection
     #endif
     bool connectTo(std::string, int);
     bool send(char*, size_t);
-    bool recv(char*, size_t);
+    int receive(char*, size_t);
     std::string readall();
     void finish();
     bool connected();

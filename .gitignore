@@ -7,3 +7,4 @@ out/antgame.a
 out/*.o
 client
 server
+tests
