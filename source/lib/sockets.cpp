@@ -1,11 +1,11 @@
 #include "sockets.hpp"
+#include <iostream>
 
 
 int Connection::port = ANTNET_DEFAULT_PORT;
 
 #ifdef ANTNET_UNIX
 int Connection::listenSockfd = -1;
-struct sockaddr_in Connection::peerAddress;
 
 
 Connection::Connection(){}
@@ -32,7 +32,7 @@ bool Connection::openListen(int nport)
     peerAddress.sin_family = AF_INET;
     peerAddress.sin_port = htons(nport);
     peerAddress.sin_addr.s_addr = INADDR_ANY;
-    if (bind(listenSockfd, &peerAddress, (socklen_t)sizeof(peerAddress)) < 0)
+    if (bind(listenSockfd, (struct sockaddr*)&peerAddress, (socklen_t)sizeof(peerAddress)) < 0)
     {
         std::cerr << "Failed to bind the listening socket! Errno: " << errno << std::endl;
         close(listenSockfd);
@@ -47,7 +47,6 @@ bool Connection::openListen(int nport)
         return false;
     }
     port = nport;
-    flags |= ANTNET_CONNFLAG_INITIATED;
     return true;
 }
 
@@ -122,8 +121,8 @@ bool Connection::connectTo(std::string nip, int nport)
     struct sockaddr_in remote;
     remote.sin_port = htons(nport);
     remote.sin_family = AF_INET;
-    remote.sin_addr = inet_addr(nip.c_str());
-    if (connect(sockfd, &remote, (socklen_t)sizeof(remote)) < 0)
+    remote.sin_addr.s_addr = inet_addr(nip.c_str());
+    if (connect(sockfd, (struct sockaddr*)&remote, (socklen_t)sizeof(remote)) < 0)
     {
         std::cerr << "Failed to connect! Errno: " << errno << std::endl;
         close(sockfd);
@@ -149,8 +148,28 @@ void Connection::finish()
     }
 }
 
+
+bool Connection::send(char* message, size_t len)
+{
+    if (sockfd < 0)
+    {
+        std::cerr << "Cannot send because this connection is not open to anything!" << std::endl;
+        return false;
+    }
+    if ((int ret = write(sockfd, message, (int)len)) < len)
+    {
+        if (ret < 0)
+        {
+            std::cerr << "Error while sending data!" << std::endl;
+            return false;
+        }
+        std::cerr << "Only sent partial data." << std::endl;
+    }
+    return true;
+}
+
 #elif defined(ANTNET_WIN)
-bool Connection::listening = false;
+bool Connection::listenOpen = false;
 bool Connection::started = false;
 int Connection::instances = 0;
 #else

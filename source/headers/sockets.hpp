@@ -1,4 +1,5 @@
 #include <string>
+#include <vector>
 #ifndef SOCKETS_HPP
 #define SOCKETS_HPP
 
@@ -15,6 +16,9 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
+#include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #elif defined(_WIN32)
 #define ANTNET_WIN
@@ -37,7 +41,7 @@ class Connection
 #ifdef ANTNET_WIN
 #ifndef CLIENT
     static SOCKET listenSock;
-    static bool listening;
+    static bool listenOpen;
 #endif
     static int instances;
     static bool started;
