@@ -11,8 +11,10 @@
 #define ANTNET_DEFAULT_PORT 55521
 #endif
 
+#if !defined(ANTNET_UNIX) && !defined(ANTNET_WIN)
 #if defined(unix) || defined(__APPLE__)
 #define ANTNET_UNIX
+#pragma message("Using Unix (Linux, Mac & More) socket function")
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
@@ -22,6 +24,7 @@
 
 #elif defined(_WIN32)
 #define ANTNET_WIN
+#pragma message("Using Windows socket function")
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winsock2.h>
@@ -33,6 +36,7 @@
 #define ANTNET_UNIX
 
 #endif
+#endif
 
 
 class Connection
@@ -41,12 +45,14 @@ class Connection
 #ifdef ANTNET_WIN
 #ifndef CLIENT
     static SOCKET listenSock;
-    static bool listenOpen;
+    public:
+    Connection(SOCKET);
+    private:
 #endif
-    static int instances;
+    static unsigned int instances;
     static bool started;
     static WSADATA wsadata;
-    SOCKET sock;
+    SOCKET sock = INVALID_SOCKET;
 #elif defined(ANTNET_UNIX)
 #ifndef CLIENT
     static int listenSockfd;
@@ -61,7 +67,7 @@ class Connection
     ~Connection();
     static int port;
     #ifndef CLIENT
-    static int fetchConnections(std::vector<Connection>*);
+    static int fetchConnections(std::vector<Connection*>*);
     static void closeListen();
     static bool openListen(int);
     static bool listening();
