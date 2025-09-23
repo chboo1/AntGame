@@ -14,7 +14,6 @@
 #if !defined(ANTNET_UNIX) && !defined(ANTNET_WIN)
 #if defined(unix) || defined(__APPLE__)
 #define ANTNET_UNIX
-#pragma message("Using Unix (Linux, Mac & More) socket function")
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
@@ -24,7 +23,6 @@
 
 #elif defined(_WIN32)
 #define ANTNET_WIN
-#pragma message("Using Windows socket function")
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winsock2.h>
