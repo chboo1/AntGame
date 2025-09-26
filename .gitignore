@@ -8,3 +8,4 @@ out/*.o
 client
 server
 tests
+tests.exe

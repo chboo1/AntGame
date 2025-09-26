@@ -6,7 +6,11 @@ libs: out/*.o
 
 
 tests: libs tests.cpp
+ifeq ($(OS),Windows_NT)
+	g++ out/*.o tests.cpp -lws2_32 -Isource/headers -o tests
+else
 	g++ out/*.o tests.cpp -Isource/headers -o tests
+endif
 
 
 client: libs

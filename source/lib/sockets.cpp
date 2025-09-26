@@ -261,7 +261,7 @@ void Connection::finish()
 
 #elif defined(ANTNET_WIN) // ifdef ANTNET_UNIX
 bool Connection::started = false;
-int Connection::instances = 0;
+unsigned int Connection::instances = 0;
 WSADATA Connection::wsadata;
 SOCKET Connection::listenSock = INVALID_SOCKET;
 
@@ -312,7 +312,7 @@ bool Connection::openListen(int port)
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
     hints.ai_flags = AI_PASSIVE;
-    int ret = getaddrinfo(nullptr, std::to_string(port), &hints, &address);
+    int ret = getaddrinfo(nullptr, std::to_string(port).c_str(), &hints, &address);
     if (ret != 0)
     {
         std::cerr << "Failed to get address for listen socket! Error code: " << ret << std::endl;
@@ -323,7 +323,7 @@ bool Connection::openListen(int port)
         }
         return false;
     }
-    listenSock = socket(address->ai_family, address->ai_socktype, address_ai_protocol);
+    listenSock = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
     if (listenSock == INVALID_SOCKET)
     {
         std::cerr << "Failed to create listen socket! Error code: " << WSAGetLastError() << std::endl;
@@ -361,6 +361,7 @@ bool Connection::openListen(int port)
         }
         return false;
     }
+    return true;
 }
 
 
@@ -470,7 +471,7 @@ bool Connection::connectTo(std::string nhost, int nport)
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
-    int ret = getaddrinfo(nhost.c_str(), std::to_string(nport), &hints, &result);
+    int ret = getaddrinfo(nhost.c_str(), std::to_string(nport).c_str(), &hints, &result);
     if (ret != 0)
     {
         std::cerr << "Failed to get address information of host `" << nhost << "' on port " << nport << ". Make sure the server is running and is at the specified address! Errno: " << ret << std::endl;
@@ -515,7 +516,7 @@ bool Connection::send(char* buf, size_t size)
         std::cerr << "Cannot send data with a connection that isn't connected yet!" << std::endl;
         return false;
     }
-    if (send(sock, buf, (int)size, 0) == SOCKET_ERROR)
+    if (::send(sock, buf, (int)size, 0) == SOCKET_ERROR)
     {
         std::cerr << "Failed to send data to peer! Errno: " << WSAGetLastError() << std::endl;
         return false;
@@ -524,14 +525,15 @@ bool Connection::send(char* buf, size_t size)
 }
 
 
-bool Connection::receive(char* buf, size_t size)
+int Connection::receive(char* buf, size_t size)
 {
     if (sock == INVALID_SOCKET)
     {
         std::cerr << "Cannot receive data from a connection that isn't connected yet!" << std::endl;
         return -1;
     }
-    if ((int r = recv(sock, buf, (int)size, 0)) == SOCKET_ERROR)
+    int r;
+    if ((r = recv(sock, buf, (int)size, 0)) == SOCKET_ERROR)
     {
         std::cerr << "Failed to receive data from peer! Errno: " << WSAGetLastError() << std::endl;
         return -1;
@@ -551,7 +553,7 @@ std::string Connection::readall()
     if (ioctlsocket(sock, FIONBIO, &yesiwantyoutousenonblock) != 0)
     {
         std::cerr << "Failed to set socket to nonblocking mode before attempting to read data!" << std::endl;
-        return -1;
+        return "";
     }
     std::string ret = "";
     char buf[512];
@@ -567,7 +569,7 @@ std::string Connection::readall()
             }
             std::cerr << "Error while reading! Errno: " << errno << std::endl;
             yesiwantyoutousenonblock = 0; // No more. Goodbye.
-            ioctlsocket(sock, FIONBIO, yesiwantyoutousenonblock);
+            ioctlsocket(sock, FIONBIO, &yesiwantyoutousenonblock);
             return "";
         }
         ret.append(buf, sizeRead);
@@ -578,7 +580,7 @@ std::string Connection::readall()
         sizeRead = recv(sock, buf, 512, 0);
     }
     yesiwantyoutousenonblock = 0; // No more. Goodbye.
-    ioctlsocket(sock, FIONBIO, yesiwantyoutousenonblock);
+    ioctlsocket(sock, FIONBIO, &yesiwantyoutousenonblock);
     return ret;
 }
 
