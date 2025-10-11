@@ -121,6 +121,7 @@ void ConnectionManager::handleViewers()
                 else if (httpResponse(v))
                 {
                     v->confirmed = true;
+                    v->timeAtLastMessage = std::chrono::steady_clock::now();
                 }
                 else if (playerGreeting(v))
                 {
@@ -137,6 +138,7 @@ void ConnectionManager::handleViewers()
     }
     auto prev = viewers.before_begin();
     bool del = false;
+    std::chrono::steady_clock::time_point timpont = std::chrono::steady_clock::now();
     for (auto it = viewers.begin(); it != viewers.end(); i++)
     {
         if (del)
@@ -149,7 +151,7 @@ void ConnectionManager::handleViewers()
         }
         del = false;
         Viewer* v = *it;
-        if (!isValid(v)) {del = true;}
+        if (!isValid(v) || std::chrono::duration<double>(timpont - v->timeAtLastMessage).count() >= 1.0) {del = true;}
     }
 }
 
@@ -235,6 +237,7 @@ bool ConnectionManager::httpResponse(Viewer* v)
                 case Round::Phase::WAIT:
                     // TODO better
                     sendResponse(v, "HTTP/1.1 200 OK\r\nConnection: keep-alive\r\n", flag == 2 ? "HTTPFiles/waiting.html" : "");
+                    v->timeAtLastMessage = std::chrono::steady_clock::now();
                     data.erase(data.begin(), data.begin() + data.find("\r\n\r\n") + 4);
                     unusedData = data;
                     break;
