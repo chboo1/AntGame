@@ -3,6 +3,7 @@
 
 
 int Connection::port = ANTNET_DEFAULT_PORT;
+Connection::ErrState Connection::serrorState = Connection::ErrState::OK;
 
 #ifdef ANTNET_UNIX
 int Connection::listenSockfd = -1;
@@ -21,11 +22,13 @@ Connection::Connection(int fd)
 #ifndef CLIENT
 bool Connection::openListen(int nport)
 {
+    serrorState = OK;
     closeListen();
     listenSockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (listenSockfd < 0)
     {
         std::cerr << "Failed to open the listening socket! Errno: " << errno << std::endl;
+        serrorState = SYS;
         listenSockfd = -1;
         return false;
     }
@@ -40,6 +43,26 @@ bool Connection::openListen(int nport)
     peerAddress.sin_addr.s_addr = INADDR_ANY;
     if (bind(listenSockfd, (struct sockaddr*)&peerAddress, (socklen_t)sizeof(peerAddress)) < 0)
     {
+        switch (errno)
+        {
+            case EACCES:
+            case EAFNOSUPPORT:
+            case EBADF:
+            case EDESTADDRREQ:
+            case EFAULT:
+            case EINVAL:
+            case ENOTSOCK:
+            case EOPNOTSUPP:
+            case EADDRNOTAVAIL:
+                serrorState = SYS;
+                break;
+            case EADDRINUSE:
+                serrorState = ADDR;
+                break;
+            default:
+                serrorState = UNKNOWN;
+                break;
+        }
         std::cerr << "Failed to bind the listening socket! Errno: " << errno << std::endl;
         close(listenSockfd);
         listenSockfd = -1;
@@ -47,6 +70,7 @@ bool Connection::openListen(int nport)
     }
     if (listen(listenSockfd, ANTNET_LISTEN_BACKLOG) < 0)
     {
+        serrorState = SYS;
         std::cerr << "Failed to listen on the listening socket! Errno: " << errno << std::endl;
         close(listenSockfd);
         listenSockfd = -1;
@@ -59,6 +83,7 @@ bool Connection::openListen(int nport)
 
 void Connection::closeListen()
 {
+    serrorState = OK;
     if (listenSockfd >= 0)
     {
         close(listenSockfd);
@@ -76,6 +101,7 @@ bool Connection::listening()
 
 int Connection::fetchConnections(std::vector<Connection*>* list)
 {
+    serrorState = OK;
     if (listenSockfd < 0)
     {
         if (!openListen(port))
@@ -88,11 +114,15 @@ int Connection::fetchConnections(std::vector<Connection*>* list)
     if (fl == -1)
     {
         std::cerr << "Failed to get flags of listening socket to set it to nonblock mode" << std::endl;
+        serrorState = SYS;
+        closeListen(); // The only possible errno here is EBADF which means listenSockfd is not a socket
         return -1; // Can't set to nonblock
     }
     if (fcntl(listenSockfd, F_SETFL, fl | O_NONBLOCK) == -1)
     {
         std::cerr << "Failed to set flags of listening socket to set it to nonblock mode" << std::endl;
+        serrorState = SYS;
+        closeListen(); // The only possible errno here is EBADF which means listenSockfd is not a socket
         return -1; // Can't set to nonblock
     }
     int newfd = -1;
@@ -108,12 +138,30 @@ int Connection::fetchConnections(std::vector<Connection*>* list)
         list->push_back(newConn);
         acceptedc++;
     }
-    if (newfd < 0)
+    if (newfd < 0) // There was an error or there aren't any more sockets to read
     {
-        if (errno != EWOULDBLOCK)
+        if (errno != EWOULDBLOCK && errno != ECONNABORTED)
         {
+            switch (errno)
+            {
+                case EBADF:
+                case EINVAL:
+                case ENOTSOCK:
+                    closeListen(); // These imply we don't have a valid sock
+                
+                case EFAULT:
+                case EMFILE:
+                case ENFILE:
+                case ENOMEM:
+                    serrorState = SYS;
+                    break;
+                case EINTR:
+                default:
+                    serrorState = UNKNOWN;
+                    break;
+            }
+            std::cerr << "Failed to accept connections! Errno: " << errno << std::endl;
         }
-        std::cerr << "Failed to accept connections! Errno: " << errno << std::endl;
     }
     fcntl(listenSockfd, F_SETFL, fl);
     return acceptedc;
@@ -123,10 +171,12 @@ int Connection::fetchConnections(std::vector<Connection*>* list)
 
 bool Connection::connectTo(std::string nip, int nport)
 {
+    errorState = OK;
     finish();
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0)
     {
+        errorState = SYS;
         std::cerr << "Failed to create socket! Errno: " << errno << std::endl;
         sockfd = -1;
         return false;
@@ -138,6 +188,44 @@ bool Connection::connectTo(std::string nip, int nport)
     errno = 0;
     if (connect(sockfd, (struct sockaddr*)&remote, (socklen_t)sizeof(remote)) < 0)
     {
+        switch (errno)
+        {
+            case EACCES:
+            case EAFNOSUPPORT:
+            case EALREADY:
+            case EBADF:
+            case EFAULT:
+            case EINTR:
+            case EINVAL:
+            case EISCONN:
+            case ENOBUFS:
+            case ENOTSOCK:
+            case EOPNOTSUPP:
+                errorState = SYS;
+                break;
+
+            case EADDRINUSE:
+            case EADDRNOTAVAIL:
+            case ECONNRESET:
+                errorState = RETRY;
+                break;
+
+            case ECONNREFUSED:
+            case EHOSTUNREACH:
+            case EPROTOTYPE:
+                errorState = ADDR;
+                break;
+
+            case ENETDOWN:
+            case ENETUNREACH:
+            case ETIMEDOUT:
+                errorState = NET;
+                break;
+
+            default:
+                errorState = UNKNOWN;
+                break;
+        }
         std::cerr << "Failed to connect! Errno: " << errno << std::endl;
         close(sockfd);
         sockfd = -1;
@@ -157,16 +245,58 @@ bool Connection::connected()
 
 bool Connection::send(char* message, size_t len)
 {
+    errorState = OK;
     if (sockfd < 0)
     {
         std::cerr << "Cannot send because this connection is not open to anything!" << std::endl;
         return false;
+    }
+    if (len <= 0)
+    {
+        return true;
     }
     int ret;
     if ((ret = write(sockfd, message, (int)len)) < len)
     {
         if (ret < 0)
         {
+            switch (errno)
+            {
+                case EFAULT:
+                case EFBIG:
+                case EINTR:
+                case EIO:
+                case ENXIO: // How
+                    errorState = SYS;
+                    break;
+                case EINVAL:
+                case EBADF:
+                    errorState = SYS;
+                    finish();
+                    break;
+#ifdef EAGAIN
+                case EAGAIN:
+#endif
+#ifdef EWOULDBLOCK
+#if !defined(EAGAIN) || EAGAIN != EWOULDBLOCK
+                case EWOULDBLOCK:
+#endif
+#endif
+                    errorState = RETRY;
+                    break;
+                case ECONNRESET:
+                case EPIPE:
+                    errorState = CLOSED;
+                    finish();
+                    break;
+                case ENETDOWN:
+                case ENETUNREACH:
+                    errorState = NET;
+                    break;
+                default:
+                    errorState = UNKNOWN;
+                    break;
+            }
             std::cerr << "Error while sending data!" << std::endl;
             return false;
         }
@@ -187,6 +317,44 @@ int Connection::receive(char* buf, size_t len)
     int ret = read(sockfd, buf, (int)len);
     if (ret < 0)
     {
+            switch (errno)
+            {
+                case EFAULT:
+                case EINTR:
+                case EIO:
+                case ENXIO: // How
+                case ENOMEM:
+                    errorState = SYS;
+                    break;
+                case EINVAL:
+                case EBADF:
+                    errorState = SYS;
+                    finish();
+                    break;
+#ifdef EAGAIN
+                case EAGAIN:
+#endif
+#ifdef EWOULDBLOCK
+#if !defined(EAGAIN) || EAGAIN != EWOULDBLOCK
+                case EWOULDBLOCK:
+#endif
+#endif
+                case ETIMEDOUT:
+                    errorState = RETRY;
+                    break;
+                case ECONNRESET:
+                case ENOTCONN:
+                    errorState = CLOSED;
+                    finish();
+                    break;
+                case ENETDOWN:
+                case ENETUNREACH:
+                    errorState = NET;
+                    break;
+                default:
+                    errorState = UNKNOWN;
+                    break;
+            }
         std::cerr << "Failed while reading! Errno: " << errno << std::endl;
         return -1;
     }
@@ -196,6 +364,7 @@ int Connection::receive(char* buf, size_t len)
 
 std::string Connection::readall()
 {
+    errorState = OK;
     if (sockfd < 0)
     {
         std::cerr << "Cannot receive data because this connection is not connected!" << std::endl;
@@ -206,11 +375,15 @@ std::string Connection::readall()
     if (fl == -1)
     {
         std::cerr << "Failed to get file flags before receiving data! Errno: " << errno << std::endl;
+        errorState = SYS;
+        finish();
         return "";
     }
     if (fcntl(sockfd, F_SETFL, fl | O_NONBLOCK) == -1)
     {
         std::cerr << "Failed to set file flags before receiving data! Errno: " << errno << std::endl;
+        errorState = SYS;
+        finish();
         return "";
     }
     std::string ret = "";
@@ -233,8 +406,39 @@ std::string Connection::readall()
                 break;
             }
             #endif
+            switch (errno)
+            {
+                case EFAULT:
+                case EINTR:
+                case EIO:
+                case ENXIO: // How
+                case ENOMEM:
+                    errorState = SYS;
+                    break;
+                case EINVAL:
+                case EBADF:
+                    errorState = SYS;
+                    finish();
+                    break;
+                case ECONNRESET:
+                case ENOTCONN:
+                    errorState = CLOSED;
+                    finish();
+                    break;
+                case ENETDOWN:
+                case ENETUNREACH:
+                case ETIMEDOUT:
+                    errorState = NET;
+                    break;
+                default:
+                    errorState = UNKNOWN;
+                    break;
+            }
             std::cerr << "Error while reading! Errno: " << errno << std::endl;
-            fcntl(sockfd, F_SETFL, fl);
+            if (sockfd >= 0)
+            {
+                fcntl(sockfd, F_SETFL, fl);
+            }
             return "";
         }
         ret.append(buf, sizeRead);
@@ -515,6 +719,10 @@ bool Connection::send(char* buf, size_t size)
     {
         std::cerr << "Cannot send data with a connection that isn't connected yet!" << std::endl;
         return false;
+    }
+    if (size <= 0)
+    {
+        return true;
     }
     if (::send(sock, buf, (int)size, 0) == SOCKET_ERROR)
     {

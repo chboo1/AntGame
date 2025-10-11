@@ -9,3 +9,4 @@ client
 server
 tests
 tests.exe
+.DS_Store

@@ -27,3 +27,4 @@ Things I need to do! It's quite nitty-gritty, but in short, this is the game pla
 	+ Website/Viewing experience.
 	+ Fine-tuning.
 - Client library
+- Fine tuning, playtesting and balancing.

@@ -18,9 +18,57 @@ Round::Round()
     }
     secondsRunning = 0;
 }
-void Round::open()
+bool Round::open()
 {
-    // TODO
+    return open("antgame.cfg", -1);
+}
+bool Round::open(int port)
+{
+    return open("antgame.cfg", port);
+}
+bool Round::open(std::string config)
+{
+    return open(config, -1);
+}
+bool Round::open(std::string config, int port)
+{
+    if (RoundSettings::instance == nullptr)
+    {
+        (new RoundSettings)->isPlayer = false; // We don't need this pointer since it's automatically becoming RoundSettings::instance
+    }
+    std::ifstream configFile;
+    if (config != "")
+    {
+        configFile.open(config, std::ios::in);
+        if (!configFile.is_open())
+        {
+            std::cerr << "Cannot open file `" << config << "'. It might not exist or it might not be readable." << std::endl;
+            if (config != "antgame.cfg")
+            {
+                configFile.open("antgame.cfg", std::ios::in);
+            }
+        }
+    }
+    // Default settings. These are set here even if there is a config file, in case not all configs are set in there.
+    RoundSettings::instance->mapFile = "defaultMap";
+    RoundSettings::instance->port = ANTNET_DEFAULT_PORT;
+    timeScale = 1.0;
+    if (configFile.is_open())
+    {
+        // TODO: Read config file
+    }
+    if (port >= 0)
+    {
+        RoundSettings::instance->port = port;
+    }
+    if (!Connection::openListen(RoundSettings::instance->port))
+    {
+        std::cerr << "Failed to start listening for connections!" << std::endl;
+        return false;
+    }
+    phase = WAIT;
+    secondsRunning = 0;
+    return true;
 }
 void Round::start()
 {
@@ -28,11 +76,52 @@ void Round::start()
 }
 void Round::step()
 {
-    std::chrono::steady_clock::time_point t = std::chrono::steady_clock::now();
-    double oldRunningTime = secondsRunning;
-    secondsRunning = ((std::chrono::duration<double>)(t - timeAtStart)).count() * timeScale; 
-    double delta = secondsRunning - oldRunningTime;
+    cm.step();
+    switch (phase)
+    {
+        case INIT:
+            return;
+        case WAIT:
+            break;
+        case RUNNING:{ // Oddly threatening.
+            std::chrono::steady_clock::time_point t = std::chrono::steady_clock::now();
+            double oldRunningTime = secondsRunning;
+            secondsRunning = ((std::chrono::duration<double>)(t - timeAtStart)).count() * timeScale; 
+            double delta = secondsRunning - oldRunningTime;
+            break;}
+        case DONE:
+            break;
+        case CLOSED:
+            break;
+    
+    }
 }
+
+
+bool Round::httpResponse(int viewerID)
+{
+    std::string data = viewers[viewerID]->unusedData;
+    data += viewers[viewerID]->conn->readall();
+    if (data.length() < 16) // Smallest possible string is something like 'GET / HTTP/1.1\r\n'
+    {
+        viewers[viewerID]->unusedData = data;
+        return false;
+    }
+    if (data.find("\r\n") != std::string::npos && data.compare(data.find("\r\n") - 8, 8, "HTTP/1.1") == 0)
+    {
+        if (data.compare(0, 4, "GET ") == 0)
+        {
+        }
+    }
+}
+
+
+bool Round::greeting(int viewerID)
+{
+    // TODO
+}
+
+
 void Round::end()
 {
     // TODO
