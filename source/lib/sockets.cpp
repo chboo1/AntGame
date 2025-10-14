@@ -249,6 +249,7 @@ bool Connection::send(char* message, size_t len)
     if (sockfd < 0)
     {
         std::cerr << "Cannot send because this connection is not open to anything!" << std::endl;
+        errorState = EARLY;
         return false;
     }
     if (len <= 0)
@@ -312,6 +313,7 @@ int Connection::receive(char* buf, size_t len)
     if (sockfd < 0)
     {
         std::cerr << "Cannot receive data because this connection is not connected!" << std::endl;
+        errorState = EARLY;
         return -1;
     }
     int ret = read(sockfd, buf, (int)len);
@@ -368,6 +370,7 @@ std::string Connection::readall()
     if (sockfd < 0)
     {
         std::cerr << "Cannot receive data because this connection is not connected!" << std::endl;
+        errorState = EARLY;
         return "";
     }
     errno = 0;
@@ -484,6 +487,7 @@ Connection::~Connection()
     if (started && instances == 0 && !listening())
     {
         WSACleanup();
+        started = false;
     }
 }
 
@@ -498,12 +502,14 @@ Connection::Connection(SOCKET nsock)
 #ifndef CLIENT
 bool Connection::openListen(int port)
 {
+    serrorState = OK;
     closeListen();
     if (!started)
     {
         int ret = WSAStartup(MAKEWORD(2, 2), &wsadata);
         if (ret != 0)
         {
+            serrorState = SYS;
             std::cerr << "Failed to initialize winsock! Error code: " << ret << std::endl;
             return false;
         }
@@ -519,6 +525,23 @@ bool Connection::openListen(int port)
     int ret = getaddrinfo(nullptr, std::to_string(port).c_str(), &hints, &address);
     if (ret != 0)
     {
+        switch (ret)
+        {
+            case WSAEINVAL:
+            case WSANO_RECOVERY:
+            case WSAEAFNOSUPPORT:
+            case WSA_NOT_ENOUGH_MEMORY:
+            case WSAESOCKTNOSUPPORT:
+                serrorState = SYS;
+                break;
+            case WSATRY_AGAIN:
+                serrorState = RETRY;
+                break;
+            case WSAHOST_NOT_FOUND:
+            case WSATYPE_NOT_FOUND:
+                serrorState = ADDR;
+                break;
+        }
         std::cerr << "Failed to get address for listen socket! Error code: " << ret << std::endl;
         if (instances <= 0)
         {
@@ -530,7 +553,18 @@ bool Connection::openListen(int port)
     listenSock = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
     if (listenSock == INVALID_SOCKET)
     {
-        std::cerr << "Failed to create listen socket! Error code: " << WSAGetLastError() << std::endl;
+        int e = WSAGetLastError();
+        switch (e)
+        {
+            case WSANOTINITIALISED:
+                serrorState = RETRY;
+                started = false; // This error was likely caused by a false started tag
+                break;
+            case WSAENETDOWN:
+                serrorState = NET;
+                break; // HERE
+        }
+        std::cerr << "Failed to create listen socket! Error code: " << e << std::endl;
         freeaddrinfo(address);
         if (instances <= 0)
         {
