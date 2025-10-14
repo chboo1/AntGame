@@ -64,8 +64,8 @@ class Connection
     Connection();
     ~Connection();
     static int port;
-    enum ErrState {OK, RETRY, CLOSED, SYS, ADDR, NET, EARLY, UNKNOWN}; // OK means no error has occured in the last call, RETRY means the call failed in a one-time way, i.e. you can retry later, CLOSED means the call failed because the connection was closed by the peer, SYS means the error is caused by system shenanigans (probably the bind call's fault), ADDR means either the remote address is unknown or the local address (when binding) is used (i.e. your port is taken up), NET means the network is down, EARLY means this request is too early (e.g. the socket isn't connected yet) and UNKNOWN means it happened for an unknown reason (woah what really)
-    ErrState errorState = OK; // TODO: Make this do something
+    enum ErrState {OK, RETRY, CLOSED, SYS, ADDR, NET, EARLY, FAULT, UNKNOWN}; // OK means no error has occured in the last call, RETRY means the call failed in a one-time way, i.e. you can retry later, CLOSED means the call failed because the connection was closed by the peer, SYS means the error is caused by system shenanigans (probably the bind call's fault), ADDR means either the remote address is unknown or the local address (when binding) is used (i.e. your port is taken up), NET means the network is down, EARLY means this request is too early (e.g. the socket isn't connected yet), FAULT means a user-provided buffer is not in user space (e.g. is NULL), only returned by send and receive and UNKNOWN means it happened for an unknown reason (woah what really)
+    ErrState errorState = OK;
     #ifndef CLIENT
     static ErrState serrorState;
     static int fetchConnections(std::vector<Connection*>*);

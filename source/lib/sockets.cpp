@@ -264,6 +264,8 @@ bool Connection::send(char* message, size_t len)
             switch (errno)
             {
                 case EFAULT:
+                    errorState = FAULT;
+                    break;
                 case EFBIG:
                 case EINTR:
                 case EIO:
@@ -322,6 +324,8 @@ int Connection::receive(char* buf, size_t len)
             switch (errno)
             {
                 case EFAULT:
+                    errorState = FAULT;
+                    break;
                 case EINTR:
                 case EIO:
                 case ENXIO: // How
@@ -458,6 +462,7 @@ std::string Connection::readall()
 
 void Connection::finish()
 {
+    errorState = OK;
     if (sockfd >= 0)
     {
         close(sockfd);
@@ -541,6 +546,9 @@ bool Connection::openListen(int port)
             case WSATYPE_NOT_FOUND:
                 serrorState = ADDR;
                 break;
+            default:
+                serrorState = UNKNOWN;
+                break;
         }
         std::cerr << "Failed to get address for listen socket! Error code: " << ret << std::endl;
         if (instances <= 0)
@@ -562,7 +570,24 @@ bool Connection::openListen(int port)
                 break;
             case WSAENETDOWN:
                 serrorState = NET;
-                break; // HERE
+                break;
+            case WSAEAFNOSUPPORT:
+            case WSAEINPROGRESS: // Shouldn't happen considering the version we're in
+            case WSAEMFILE:
+            case WSAEINVAL:
+            case WSAEINVALIDPROVIDER:
+            case WSAEINVALIDPROCTABLE:
+            case WSAENOBUFS:
+            case WSAENOSUPPORT:
+            case WSAEPROTONOSUPPORT:
+            case WSAEPROTOTYPE:
+            case WSAEPROVIDERFAILEDINIT:
+            case WSAESOCKTNOSUPPORT:
+                serrorState = SYS;
+                break;
+            default:
+                serrorState = UNKNOWN;
+                break;
         }
         std::cerr << "Failed to create listen socket! Error code: " << e << std::endl;
         freeaddrinfo(address);
@@ -575,7 +600,33 @@ bool Connection::openListen(int port)
     }
     if (bind(listenSock, address->ai_addr, (int)address->ai_addrlen) == SOCKET_ERROR)
     {
-        std::cerr << "Failed to bind listen socket to port! Error code: " << WSAGetLastError() << std::endl;
+        int e = WSAGetLastError();
+        std::cerr << "Failed to bind listen socket to port! Error code: " << e << std::endl;
+        switch (e)
+        {
+            case WSANOTINITIALISED:
+                serrorState = RETRY;
+                started = false;
+                break;
+            case WSAENETDOWN:
+                serrorState = NET;
+                break;
+            case WSAEACCES:
+            case WSAEADDRINUSE:
+            case WSAEADDRNOTAVAIL:
+                serrorState = ADDR;
+                break;
+            case WSAEFAULT:
+            case WSAEINPROGRESS:
+            case WSAEINVAL:
+            case WSAENOBUFS:
+            case WSAENOTSOCK: // Dunno how this would happen
+                serrorState = SYS;
+                break;
+            default:
+                serrorState = UNKNOWN;
+                break;
+        }
         freeaddrinfo(address);
         closesocket(listenSock);
         listenSock = INVALID_SOCKET;
@@ -589,7 +640,33 @@ bool Connection::openListen(int port)
     freeaddrinfo(address);
     if (listen(listenSock, ANTNET_LISTEN_BACKLOG) == SOCKET_ERROR)
     {
-        std::cerr << "Failed to listen on socket! Error code: " << WSAGetLastError() << std::endl;
+        int e = WSAGetLastError();
+        std::cerr << "Failed to listen on socket! Error code: " << e << std::endl;
+        switch (e)
+        {
+            case WSANOTINITIALISED:
+                serrorState = RETRY;
+                started = false;
+                break;
+            case WSAENETDOWN:
+                serrorState = NET;
+                break;
+            case WSAEADDRINUSE: // Is essentially thrown by bind but is encountered on listen because it is when wildcard addresses get crystallized
+                serrorState = ADDR;
+                break;
+            case WSAEINPROGRESS:
+            case WSAEINVAL: // How
+            case WSAEISCONN: // How
+            case WSAEMFILE:
+            case WSAENOBUFS:
+            case WSAENOTSOCK: // How
+            case EOPNOTSUPP:
+                serrorState = SYS;
+                break;
+            default:
+                serrorState = UNKNOWN;
+                break;
+        }
         closesocket(listenSock);
         listenSock = INVALID_SOCKET;
         if (instances <= 0)
@@ -605,6 +682,7 @@ bool Connection::openListen(int port)
 
 void Connection::closeListen()
 {
+    serrorState = OK;
     if (listenSock != INVALID_SOCKET)
     {
         closesocket(listenSock);
@@ -631,7 +709,8 @@ bool Connection::listening()
 
 int Connection::fetchConnections(std::vector<Connection*>* list)
 {
-    if (listenSock == INVALID_SOCKET)
+    serrorState = OK;
+    if (listenSock == INVALID_SOCKET || !started)
     {
         if (!openListen(port))
         {
@@ -642,13 +721,16 @@ int Connection::fetchConnections(std::vector<Connection*>* list)
     unsigned long yesiwantyoutousenonblock = 1;
     if (ioctlsocket(listenSock, FIONBIO, &yesiwantyoutousenonblock) != 0)
     {
-        std::cerr << "Failed to set listening socket to nonblocking mode before attempting to accept connections!" << std::endl;
+        int e = WSAGetLastError();
+        std::cerr << "Failed to set listening socket to nonblocking mode before attempting to accept connections! Error: " << e << std::endl;
+        serrorState = SYS;
         return -1;
     }
     yesiwantyoutousenonblock = 0; // No more. Goodbye.
     SOCKET newsock = INVALID_SOCKET;
     int acceptedc = 0;
-    while ( (newsock = accept(listenSock, nullptr, nullptr)) != INVALID_SOCKET || WSAGetLastError() == WSAECONNRESET) // We ignore ECONNRESET because this does not indicate listenSock is in a failstate
+    int err = 0;
+    while ( (newsock = accept(listenSock, nullptr, nullptr)) != INVALID_SOCKET || (err = WSAGetLastError()) == WSAECONNRESET) // We ignore ECONNRESET because this does not indicate listenSock is in a failstate
     {
         if (newsock == INVALID_SOCKET)
         {
@@ -661,9 +743,30 @@ int Connection::fetchConnections(std::vector<Connection*>* list)
     }
     if (newsock == INVALID_SOCKET)
     {
-        int err = WSAGetLastError();
-        if (err != WSAEWOULDBLOCK)
+        if (err != WSAEWOULDBLOCK && err != WSAECONNRESET)
         {
+            switch (err)
+            {
+                case WSANOTINITIALISED:
+                    started = false;
+                case WSAEINVAL:
+                case WSAENOTSOCK:
+                    closeListen();
+                case WSAEFAULT:
+                case WSAEINTR:
+                case WSAEINPROGRESS:
+                case WSAEMFILE:
+                case WSAENOBUFS:
+                case WSAEOPNOTSUPP:
+                    serrorState = SYS;
+                    break;
+                case WSAENETDOWN:
+                    serrorState = NET;
+                    break;
+                default:
+                    serrorState = UNKNOWN;
+                    break;
+            }
             std::cerr << "Failed to accept any connections using accept! Errno: " << err << std::endl;
             return -1;
         }
@@ -682,6 +785,7 @@ bool Connection::connected()
 
 void Connection::finish()
 {
+    errorState = OK;
     if (sock != INVALID_SOCKET)
     {
         closesocket(sock);
@@ -693,6 +797,7 @@ void Connection::finish()
 bool Connection::connectTo(std::string nhost, int nport)
 {
     finish();
+    errorState = OK;
     if (!started)
     {
         int ret = WSAStartup(MAKEWORD(2,2), &wsadata);
@@ -712,17 +817,66 @@ bool Connection::connectTo(std::string nhost, int nport)
     int ret = getaddrinfo(nhost.c_str(), std::to_string(nport).c_str(), &hints, &result);
     if (ret != 0)
     {
+        switch (ret)
+        {
+            case WSAEINVAL:
+            case WSANO_RECOVERY:
+            case WSAEAFNOSUPPORT:
+            case WSA_NOT_ENOUGH_MEMORY:
+            case WSAESOCKTNOSUPPORT:
+                errorState = SYS;
+                break;
+            case WSATRY_AGAIN:
+                errorState = RETRY;
+                break;
+            case WSAHOST_NOT_FOUND:
+            case WSATYPE_NOT_FOUND:
+                errorState = ADDR;
+                break;
+            default:
+                errorState = UNKNOWN;
+                break;
+        }
         std::cerr << "Failed to get address information of host `" << nhost << "' on port " << nport << ". Make sure the server is running and is at the specified address! Errno: " << ret << std::endl;
         return false;
     }
     sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock == INVALID_SOCKET)
     {
-        std::cerr << "Failed to create socket! Errno: " << WSAGetLastError() << std::endl;
+        int e = WSAGetLastError();
+        switch (e)
+        {
+            case WSANOTINITIALISED:
+                errorState = RETRY;
+                started = false; // This error was likely caused by a false started tag
+                break;
+            case WSAENETDOWN:
+                errorState = NET;
+                break;
+            case WSAEAFNOSUPPORT:
+            case WSAEINPROGRESS: // Shouldn't happen considering the version we're in
+            case WSAEMFILE:
+            case WSAEINVAL:
+            case WSAEINVALIDPROVIDER:
+            case WSAEINVALIDPROCTABLE:
+            case WSAENOBUFS:
+            case WSAENOSUPPORT:
+            case WSAEPROTONOSUPPORT:
+            case WSAEPROTOTYPE:
+            case WSAEPROVIDERFAILEDINIT:
+            case WSAESOCKTNOSUPPORT:
+                errorState = SYS;
+                break;
+            default:
+                errorState = UNKNOWN;
+                break;
+        }
+        std::cerr << "Failed to create socket! Errno: " << e << std::endl;
         freeaddrinfo(result);
         return false;
     }
     bool success = false;
+    errorState = OK;
     for (struct addrinfo*temp = result; temp != nullptr; temp = temp->ai_next)
     {
         if (temp == nullptr)
@@ -731,10 +885,55 @@ bool Connection::connectTo(std::string nhost, int nport)
         }
         if (connect(sock, temp->ai_addr, (int)temp->ai_addrlen) == SOCKET_ERROR)
         {
+            int e = WSAGetLastError();
+            bool done = false;
+            switch(e)
+            {
+                case WSANOTINITIALISED:
+                    done = true;
+                    errorState = RETRY;
+                    started = false;
+                    break;
+                case WSAENETDOWN:
+                case WSAENETUNREACH:
+                    done = true;
+                    errorState = NET;
+                    break;
+                case WSAEINVAL:
+                case WSAENOTSOCK:
+                    done = true;
+                case WSAEADDRINUSE: // Is not flagged as ADDR because that would imply the remote address is invalid, when it isn't.
+                case WSAEINTR:
+                case WSAEINPROGRESS:
+                case WSAEALREADY:
+                case WSAEAFNOSUPPORT:
+                case WSAEFAULT:
+                case WSAENOBUFS:
+                    errorState = errorState != ADDR ? SYS : ADDR; // If there is an address error already we want to show that to the client more than we do this random sys error.
+                    break;
+                case WSAEADDRNOTAVAIL:
+                case WSAECONNREFUSED:
+                case WSAEHOSTUNREACH:
+                case WSAETIMEDOUT:
+                    errorState = ADDR;
+                    break;
+                case WSAEISCONN:
+                    done = true;
+                    errorState = OK;
+                    break; // We're already connected so just leave
+                case WSAEWOULDBLOCK:
+                case WSAEACCES:
+                default:
+                    errorState = UNKNOWN;
+                    break;
+            }
+            if (done) {break;}
             continue;
         }
         // Connected successfully
         success = true;
+        errorState = OK;
+        break;
     }
     freeaddrinfo(result);
     if (!success)
@@ -749,9 +948,11 @@ bool Connection::connectTo(std::string nhost, int nport)
 
 bool Connection::send(char* buf, size_t size)
 {
+    errorState = OK;
     if (sock == INVALID_SOCKET)
     {
         std::cerr << "Cannot send data with a connection that isn't connected yet!" << std::endl;
+        errorState = EARLY;
         return false;
     }
     if (size <= 0)
@@ -760,7 +961,44 @@ bool Connection::send(char* buf, size_t size)
     }
     if (::send(sock, buf, (int)size, 0) == SOCKET_ERROR)
     {
-        std::cerr << "Failed to send data to peer! Errno: " << WSAGetLastError() << std::endl;
+        int e = WSAGetLastError();
+        switch (e)
+        {
+            case WSAEFAULT:
+                errorState = FAULT;
+                break;
+            case WSANOTINITIALISED:
+                started = false;
+            case WSAENOTCONN:
+            case WSAENOTSOCK:
+            case WSAEINVAL:
+                finish();
+            case WSAEINTR:
+            case WSAEINPROGRESS:
+            case WSAENOBUFS:
+            case WSAEOPNOTSUPP:
+                errorState = SYS;
+                break;
+            case WSAENETDOWN:
+                errorState = NET;
+                break;
+            case WSAENETRESET:
+            case WSAEHOSTUNREACH:
+            case WSAECONNABORTED:
+            case WSAECONNRESET:
+            case WSAETIMEDOUT:
+                finish();
+            case WSAESHUTDOWN:
+                errorState = CLOSED;
+                break;
+            case WSAEACCES:
+            case WSAEWOULDBLOCK:
+            case WSAEMSGSIZE:
+            default:
+                errorState = UNKNOWN;
+                break;
+        }
+        std::cerr << "Failed to send data to peer! Errno: " << e << std::endl;
         return false;
     }
     return true;
@@ -769,15 +1007,54 @@ bool Connection::send(char* buf, size_t size)
 
 int Connection::receive(char* buf, size_t size)
 {
+    errorState = OK;
     if (sock == INVALID_SOCKET)
     {
         std::cerr << "Cannot receive data from a connection that isn't connected yet!" << std::endl;
+        errorState = EARLY;
         return -1;
     }
     int r;
     if ((r = recv(sock, buf, (int)size, 0)) == SOCKET_ERROR)
     {
-        std::cerr << "Failed to receive data from peer! Errno: " << WSAGetLastError() << std::endl;
+        int e = WSAGetLastError();
+        switch (e)
+        {
+            case WSAEFAULT:
+                errorState = FAULT;
+                break;
+            case WSANOTINITIALISED:
+                started = false;
+            case WSAENOTCONN:
+            case WSAENOTSOCK:
+            case WSAEINVAL:
+                finish();
+            case WSAEINTR:
+            case WSAEINPROGRESS:
+            case WSAENOBUFS:
+            case WSAEOPNOTSUPP:
+                errorState = SYS;
+                break;
+            case WSAENETDOWN:
+                errorState = NET;
+                break;
+            case WSAENETRESET:
+            case WSAEHOSTUNREACH:
+            case WSAECONNABORTED:
+            case WSAECONNRESET:
+            case WSAETIMEDOUT:
+                finish();
+            case WSAESHUTDOWN:
+                errorState = CLOSED;
+                break;
+            case WSAEACCES:
+            case WSAEWOULDBLOCK:
+            case WSAEMSGSIZE:
+            default:
+                errorState = UNKNOWN;
+                break;
+        }
+        std::cerr << "Failed to receive data from peer! Errno: " << e << std::endl;
         return -1;
     }
     return r;
@@ -786,15 +1063,18 @@ int Connection::receive(char* buf, size_t size)
 
 std::string Connection::readall()
 {
+    errorState = OK;
     if (sock == INVALID_SOCKET)
     {
         std::cerr << "Cannot read data from a connection that isn't connected yet!" << std::endl;
+        errorState = EARLY;
         return "";
     }
     unsigned long yesiwantyoutousenonblock = 1;
     if (ioctlsocket(sock, FIONBIO, &yesiwantyoutousenonblock) != 0)
     {
         std::cerr << "Failed to set socket to nonblocking mode before attempting to read data!" << std::endl;
+        serrorState = SYS;
         return "";
     }
     std::string ret = "";
@@ -805,11 +1085,45 @@ std::string Connection::readall()
         if (sizeRead == SOCKET_ERROR)
         {
             int err = WSAGetLastError();
-            if (err = WSAEWOULDBLOCK)
+            if (err == WSAEWOULDBLOCK)
             {
                 break;
             }
-            std::cerr << "Error while reading! Errno: " << errno << std::endl;
+            switch (err)
+            {
+                case WSANOTINITIALISED:
+                    started = false;
+                case WSAENOTCONN:
+                case WSAENOTSOCK:
+                case WSAEINVAL:
+                    finish();
+                case WSAEINTR:
+                case WSAEINPROGRESS:
+                case WSAENOBUFS:
+                case WSAEOPNOTSUPP:
+                case WSAEFAULT:
+                    errorState = SYS;
+                    break;
+                case WSAENETDOWN:
+                    errorState = NET;
+                    break;
+                case WSAENETRESET:
+                case WSAEHOSTUNREACH:
+                case WSAECONNABORTED:
+                case WSAECONNRESET:
+                case WSAETIMEDOUT:
+                    finish();
+                case WSAESHUTDOWN:
+                    errorState = CLOSED;
+                    break;
+                case WSAEACCES:
+                case WSAEWOULDBLOCK:
+                case WSAEMSGSIZE:
+                default:
+                    errorState = UNKNOWN;
+                    break;
+            }
+            std::cerr << "Error while reading! Errno: " << err << std::endl;
             yesiwantyoutousenonblock = 0; // No more. Goodbye.
             ioctlsocket(sock, FIONBIO, &yesiwantyoutousenonblock);
             return "";
