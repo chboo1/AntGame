@@ -74,7 +74,7 @@ class Connection
     static bool listening();
     #endif
     bool connectTo(std::string, int);
-    bool send(char*, size_t);
+    bool send(const char*, size_t);
     int receive(char*, size_t);
     std::string readall();
     void finish();

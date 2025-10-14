@@ -243,7 +243,7 @@ bool Connection::connected()
 }
 
 
-bool Connection::send(char* message, size_t len)
+bool Connection::send(const char* message, size_t len)
 {
     errorState = OK;
     if (sockfd < 0)
@@ -578,7 +578,6 @@ bool Connection::openListen(int port)
             case WSAEINVALIDPROVIDER:
             case WSAEINVALIDPROCTABLE:
             case WSAENOBUFS:
-            case WSAENOSUPPORT:
             case WSAEPROTONOSUPPORT:
             case WSAEPROTOTYPE:
             case WSAEPROVIDERFAILEDINIT:
@@ -860,7 +859,6 @@ bool Connection::connectTo(std::string nhost, int nport)
             case WSAEINVALIDPROVIDER:
             case WSAEINVALIDPROCTABLE:
             case WSAENOBUFS:
-            case WSAENOSUPPORT:
             case WSAEPROTONOSUPPORT:
             case WSAEPROTOTYPE:
             case WSAEPROVIDERFAILEDINIT:
@@ -946,7 +944,7 @@ bool Connection::connectTo(std::string nhost, int nport)
 }
 
 
-bool Connection::send(char* buf, size_t size)
+bool Connection::send(const char* buf, size_t size)
 {
     errorState = OK;
     if (sock == INVALID_SOCKET)

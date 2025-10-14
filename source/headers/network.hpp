@@ -42,7 +42,7 @@ class ConnectionManager
     void handleViewers();
     bool httpResponse(Viewer*);
     bool playerGreeting(Viewer*);
-    bool sendResponse(std::string, std::string);
+    bool sendResponse(Viewer*, std::string, std::string);
     bool isValid(Viewer*);
     public:
     struct Command

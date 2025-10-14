@@ -98,30 +98,6 @@ void Round::step()
 }
 
 
-bool Round::httpResponse(int viewerID)
-{
-    std::string data = viewers[viewerID]->unusedData;
-    data += viewers[viewerID]->conn->readall();
-    if (data.length() < 16) // Smallest possible string is something like 'GET / HTTP/1.1\r\n'
-    {
-        viewers[viewerID]->unusedData = data;
-        return false;
-    }
-    if (data.find("\r\n") != std::string::npos && data.compare(data.find("\r\n") - 8, 8, "HTTP/1.1") == 0)
-    {
-        if (data.compare(0, 4, "GET ") == 0)
-        {
-        }
-    }
-}
-
-
-bool Round::greeting(int viewerID)
-{
-    // TODO
-}
-
-
 void Round::end()
 {
     // TODO

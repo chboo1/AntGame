@@ -1,5 +1,6 @@
 #include "network.hpp"
 #include "map.hpp"
+#include <fstream>
 
 
 RoundSettings* RoundSettings::instance = nullptr;
@@ -80,7 +81,11 @@ void ConnectionManager::step()
         case Round::Phase::WAIT:
             if (Connection::listening())
             {
-                std::vector<Connection*> newConnections = Connection::fetchConnections();
+                std::vector<Connection*> newConnections;
+                if (Connection::fetchConnections(&newConnections) < 0)
+                {
+                    // TODO
+                }
                 for (int i = 0; i < newConnections.size(); i++)
                 {
                     if (newConnections[i] == nullptr) {continue;}
@@ -125,21 +130,17 @@ void ConnectionManager::handleViewers()
                 }
                 else if (playerGreeting(v))
                 {
-                    players.push_back(new Player(*v);
+                    players.push_back(new Player(*v));
                     v->conn = nullptr; // So the destructor doesn't kill it
                     v->toClose = true;
                 }
-            }
-            if (del)
-            {
-                viewers.erase_after(prev);
             }
             break;}
     }
     auto prev = viewers.before_begin();
     bool del = false;
     std::chrono::steady_clock::time_point timpont = std::chrono::steady_clock::now();
-    for (auto it = viewers.begin(); it != viewers.end(); i++)
+    for (auto it = viewers.begin(); it != viewers.end(); it++)
     {
         if (del)
         {
@@ -158,7 +159,7 @@ void ConnectionManager::handleViewers()
 
 bool ConnectionManager::isValid(Viewer* v)
 {
-    return v != nullptr && !v->toClose && v->conn != nullptr && v->conn->errorState != CLOSED && v->conn->connected();
+    return v != nullptr && !v->toClose && v->conn != nullptr && v->conn->errorState != Connection::CLOSED && v->conn->connected();
 }
 
 
@@ -206,28 +207,28 @@ bool ConnectionManager::httpResponse(Viewer* v)
         {
             sendResponse(v, "HTTP/1.1 405 Method Not Allowed\r\nConnection: keep-alive\r\n", "HTTPFiles/err405.html");
             data.erase(data.begin(), data.begin() + data.find("\r\n\r\n") + 4);
-            unusedData = data;
+            v->unusedData = data;
             return true;
         }
         if (flag == 0)
         {
             sendResponse(v, "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n", "HTTPFiles/err400.html");
             data.erase(data.begin(), data.begin() + data.find("\r\n\r\n") + 4);
-            unusedData = data;
+            v->unusedData = data;
             v->toClose = true;
             return false;
         }
         if (data.compare(data.find(' ') + 1, 12, "/favicon.ico") == 0)
         {
-            sendReponse(v, "HTTP/1.1 200 OK\r\nConnection: keep-alive\r\n", flag == 2 ? "HTTPFiles/favicon.ico" : "");
+            sendResponse(v, "HTTP/1.1 200 OK\r\nConnection: keep-alive\r\n", flag == 2 ? "HTTPFiles/favicon.ico" : "");
             data.erase(data.begin(), data.begin() + data.find("\r\n\r\n") + 4);
-            unusedData = data;
+            v->unusedData = data;
         }
         else if (data.compare(data.find(' ') + 1, 2, "/ ") != 0)
         {
             sendResponse(v, "HTTP/1.1 301 Moved Permanently\r\nLocation: /\r\nConnection: keep-alive\r\n", "");
             data.erase(data.begin(), data.begin() + data.find("\r\n\r\n") + 4);
-            unusedData = data;
+            v->unusedData = data;
         }
         else
         {
@@ -239,7 +240,7 @@ bool ConnectionManager::httpResponse(Viewer* v)
                     sendResponse(v, "HTTP/1.1 200 OK\r\nConnection: keep-alive\r\n", flag == 2 ? "HTTPFiles/waiting.html" : "");
                     v->timeAtLastMessage = std::chrono::steady_clock::now();
                     data.erase(data.begin(), data.begin() + data.find("\r\n\r\n") + 4);
-                    unusedData = data;
+                    v->unusedData = data;
                     break;
                 case Round::Phase::RUNNING:
                 case Round::Phase::DONE: break; // TODO
@@ -252,7 +253,7 @@ bool ConnectionManager::httpResponse(Viewer* v)
 }
 
 
-bool sendResponse(Viewer* v, std::string header, std::string filename)
+bool ConnectionManager::sendResponse(Viewer* v, std::string header, std::string filename)
 {
     if (!isValid(v))
     {
@@ -311,7 +312,7 @@ bool ConnectionManager::playerGreeting(Viewer* v)
     v->unusedData = data;
     if (true /* TODO conditions */ )
     {
-        v->send("\0\0\0\x0a\0\0\0\x01\0\0"); // OK
+        v->conn->send("\0\0\0\x0a\0\0\0\x01\0\0", 10); // OK
     }
     return true;
 }
