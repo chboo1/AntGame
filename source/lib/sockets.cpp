@@ -133,9 +133,16 @@ int Connection::fetchConnections(std::vector<Connection*>* list)
         {
             continue;
         }
-        fcntl(newfd, F_SETFL, fl); 
-        Connection* newConn = new Connection(newfd);
-        list->push_back(newConn);
+        if (list)
+        {
+            fcntl(newfd, F_SETFL, fl); 
+            Connection* newConn = new Connection(newfd);
+            list->push_back(newConn);
+        }
+        else
+        {
+            close(newfd);
+        }
         acceptedc++;
     }
     if (newfd < 0) // There was an error or there aren't any more sockets to read
@@ -310,7 +317,7 @@ bool Connection::send(const char* message, size_t len)
 }
 
 
-int Connection::receive(char* buf, size_t len)
+int Connection::receive(char* buf, size_t size)
 {
     if (sockfd < 0)
     {
@@ -318,7 +325,7 @@ int Connection::receive(char* buf, size_t len)
         errorState = EARLY;
         return -1;
     }
-    int ret = read(sockfd, buf, (int)len);
+    int ret = read(sockfd, buf, (int)size);
     if (ret < 0)
     {
             switch (errno)
@@ -505,7 +512,7 @@ Connection::Connection(SOCKET nsock)
 
 
 #ifndef CLIENT
-bool Connection::openListen(int port)
+bool Connection::openListen(int nport)
 {
     serrorState = OK;
     closeListen();
@@ -527,7 +534,7 @@ bool Connection::openListen(int port)
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
     hints.ai_flags = AI_PASSIVE;
-    int ret = getaddrinfo(nullptr, std::to_string(port).c_str(), &hints, &address);
+    int ret = getaddrinfo(nullptr, std::to_string(nport).c_str(), &hints, &address);
     if (ret != 0)
     {
         switch (ret)
@@ -675,6 +682,7 @@ bool Connection::openListen(int port)
         }
         return false;
     }
+    port = nport;
     return true;
 }
 
@@ -735,9 +743,16 @@ int Connection::fetchConnections(std::vector<Connection*>* list)
         {
             continue;
         }
-        ioctlsocket(newsock, FIONBIO, &yesiwantyoutousenonblock);
-        Connection* newConn = new Connection(newsock);
-        list->push_back(newConn);
+        if (list)
+        {
+            ioctlsocket(newsock, FIONBIO, &yesiwantyoutousenonblock);
+            Connection* newConn = new Connection(newsock);
+            list->push_back(newConn);
+        }
+        else
+        {
+            closesocket(newsock);
+        }
         acceptedc++;
     }
     if (newsock == INVALID_SOCKET)
@@ -793,7 +808,7 @@ void Connection::finish()
 }
 
 
-bool Connection::connectTo(std::string nhost, int nport)
+bool Connection::connectTo(std::string nip, int nport)
 {
     finish();
     errorState = OK;
@@ -813,7 +828,7 @@ bool Connection::connectTo(std::string nhost, int nport)
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
-    int ret = getaddrinfo(nhost.c_str(), std::to_string(nport).c_str(), &hints, &result);
+    int ret = getaddrinfo(nip.c_str(), std::to_string(nport).c_str(), &hints, &result);
     if (ret != 0)
     {
         switch (ret)
@@ -836,7 +851,7 @@ bool Connection::connectTo(std::string nhost, int nport)
                 errorState = UNKNOWN;
                 break;
         }
-        std::cerr << "Failed to get address information of host `" << nhost << "' on port " << nport << ". Make sure the server is running and is at the specified address! Errno: " << ret << std::endl;
+        std::cerr << "Failed to get address information of host `" << nip << "' on port " << nport << ". Make sure the server is running and is at the specified address! Errno: " << ret << std::endl;
         return false;
     }
     sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -944,7 +959,7 @@ bool Connection::connectTo(std::string nhost, int nport)
 }
 
 
-bool Connection::send(const char* buf, size_t size)
+bool Connection::send(const char* message, size_t len)
 {
     errorState = OK;
     if (sock == INVALID_SOCKET)
@@ -957,7 +972,7 @@ bool Connection::send(const char* buf, size_t size)
     {
         return true;
     }
-    if (::send(sock, buf, (int)size, 0) == SOCKET_ERROR)
+    if (::send(sock, message, (int)len, 0) == SOCKET_ERROR)
     {
         int e = WSAGetLastError();
         switch (e)

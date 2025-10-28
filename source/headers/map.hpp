@@ -7,6 +7,7 @@
 #ifndef MAP_HPP
 #define MAP_HPP
 
+
 class Pos
 {
     public:
@@ -25,13 +26,14 @@ class Round
     static Round*instance;
     ConnectionManager cm;
     double secondsRunning;
+    std::chrono::steady_clock::time_point phaseEndTime; // Not affected by time scale
     std::chrono::steady_clock::time_point timeAtStart;
-    double timeScale = 1.0; // Every non-native measure of seconds counts up by this number every real second
-    enum Phase {INIT, WAIT, RUNNING, DONE, CLOSED};
+    enum Phase {INIT, WAIT, RUNNING, DONE, CLOSED, ERROR};
     Phase phase = INIT;
     Map*map;
     Round();
     Round(std::string); // Uses a config file
+    ~Round();
     bool open();
     bool open(int);
     bool open(std::string);
@@ -52,6 +54,7 @@ class Map
     void init(); // Uses RoundSettings::instance to get values
     std::string encode(); // Returns a string that can be passed to decode() to copy this map.
     void decode(std::string); // Takes a string returned from encode() and copies that map to this instance.
+    void _decode(std::istream);
     void freeMap();
     void cleanup();
     ~Map();
@@ -61,32 +64,37 @@ class Map
 class Nest
 {
     public:
+    class NestCommand
+    {
+        enum class ID : unsigned char {DONE, NEWANT};
+        ID cmd;
+        unsigned long arg;
+    };
     Map*parent;
     Pos p;
     std::vector<Ant*> ants;
+    std::deque<NestCommand> commands;
+    double foodCount;
     Nest();
     Nest(Map*, Pos); // Takes a parent ptr and a position
     Nest(Map*, Pos, int); // Takes a parent ptr, a position and an ant count
     void init(Map*, Pos, int); // Takes a parent ptr, a position and an ant count
+    void giveCommand(NestCommand);
+    void step(double);
     void cleanup();
     ~Nest();
 };
-
-struct AntCommand
-{
-    unsigned char cmd;
-    unsigned long arg;
-};
-
-
-#define ANTCOMMAND_GOTO 0
-#define ANTCOMMAND_TINTERACT 1
-#define ANTCOMMAND_AINTERACT 2
 
 
 class Ant
 {
     public:
+    class AntCommand
+    {
+        enum class ID : unsigned char {DONE, MOVE, TINTERACT, AINTERACT};
+        ID cmd;
+        unsigned long arg;
+    };
     Nest*parent;
     Pos p;
     unsigned char type;
