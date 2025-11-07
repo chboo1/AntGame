@@ -24,8 +24,8 @@ Things I need to do! It's quite complicated in reality, but in short, this is th
 
 - Cross-platform socket implementation (the most basic communication layer allows windows people and mac people and linux people to work together). Done!
 - Server parts
-	+ Communication layer (how the server talks to players and viewers, basically like your keyboard and screen, but over the internet). Pretty well started.
-	+ Mechanics layer (how the game actually runs).
+	+ Communication layer (how the server talks to players and viewers, basically like your keyboard and screen, but over the internet). Almost done, only missing two features.
+	+ Mechanics layer (how the game actually runs). Somehow mostly finished for now.
 	+ Website/Viewing experience (you can type in the address of the server and watch it all burn down! this is making sure that works fine).
 - Client library (The thing that makes it easy for you. I doubt any of you want to learn how to code sockets.)
 - Fine tuning, playtesting and balancing. (Oh boy. This is when I fix my game after you rip it open with a chainsaw. Thank you, by the way.)
