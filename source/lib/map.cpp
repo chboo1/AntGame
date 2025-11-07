@@ -1,4 +1,5 @@
 #include "map.hpp"
+#include "antTypes.hpp"
 #include <chrono>
 #include <iostream>
 #include <vector>
@@ -7,12 +8,14 @@
 #include <cstdint>
 #include <thread> // For sleeping
 #include <cstdlib>
+#include <cmath>
+#include <algorithm>
 
 
 Round* Round::instance = nullptr;
 
 
-const char[16] ANTGAME_hexarray = "0123456789abcdef";
+const char ANTGAME_hexarray[] = "0123456789abcdef";
 std::string ANTGAME_uchartohex(unsigned char num)
 {
     std::string out;
@@ -44,6 +47,85 @@ std::string ANTGAME_uinttohex(unsigned int num)
     return out;
 }
 
+
+Pos::Pos(DPos o)
+{
+    x = std::max(std::floor(o.x), 0.0);
+    y = std::max(std::floor(o.y), 0.0);
+}
+
+
+Pos::Pos(unsigned int nx, unsigned int ny)
+{
+    x = nx;
+    y = ny;
+}
+
+
+Pos& Pos::operator=(DPos o)
+{
+    x = std::max(std::floor(o.x), 0.0);
+    y = std::max(std::floor(o.y), 0.0);
+    return *this;
+}
+
+
+bool Pos::operator==(Pos o)
+{
+    return x == o.x && y == o.y;
+}
+
+
+bool Pos::operator!=(Pos o)
+{
+    return x != o.x || y != o.y;
+}
+
+
+DPos::DPos(Pos o)
+{
+    x = o.x;
+    y = o.y;
+}
+
+
+DPos::DPos(double nx, double ny)
+{
+    x = nx;
+    y = ny;
+}
+
+
+DPos& DPos::operator=(Pos o)
+{
+    x = o.x;
+    y = o.y;
+    return *this;
+}
+
+
+DPos DPos::operator+(DPos o)
+{
+    DPos r = o;
+    r.x += x;
+    r.y += y;
+    return r;
+}
+
+
+DPos DPos::operator-(DPos o)
+{
+    DPos r{x, y};
+    r.x -= o.x;
+    r.y -= o.y;
+    return r;
+}
+
+
+double DPos::magnitude()
+{
+    return sqrt(x*x + y*y);
+}
 
 
 Round::Round()
@@ -93,10 +175,14 @@ bool Round::open(std::string config, int port)
     {
         (new RoundSettings)->isPlayer = false; // We don't need this pointer since it's automatically becoming RoundSettings::instance
     }
-    loadConfig(config);
+    RoundSettings::instance->loadConfig(config);
     if (port >= 0)
     {
         RoundSettings::instance->port = port;
+    }
+    if (logging)
+    {
+        std::cout << "Opening server to connections using config file located at '" << config << "' and on port " << RoundSettings::instance->port << "." << std::endl;
     }
     map = new Map;
     map->init();
@@ -120,10 +206,25 @@ bool Round::open(std::string config, int port)
 
 void Round::start()
 {
+    if (phase != WAIT)
+    {
+        std::cerr << "Error: Trying to start the round before the waiting state!" << std::endl;
+        return;
+    }
+    if (!map)
+    {
+        std::cerr << "Error: Trying to start the game without a map!" << std::endl;
+        phase = ERROR;
+        return;
+    }
     timeAtStart = std::chrono::steady_clock::now();
     secondsRunning = 0;
     phase = RUNNING;
     cm.start();
+    for (Nest* n : map->nests)
+    {
+        n->foodCount = RoundSettings::instance->startingFood;
+    }
 }
 
 
@@ -132,7 +233,6 @@ void Round::step()
     cm.step();
     switch (phase)
     {
-        case DEAD:
         case INIT:
             return;
         case WAIT:
@@ -141,7 +241,8 @@ void Round::step()
             {
                 if (phaseEndTime == std::chrono::steady_clock::time_point::max())
                 {
-                    phaseEndTime = std::chrono::steady_clock::now() + std::chrono::steady_clock::duration<double, std::seconds>(RoundSettings::instance->gamestartdelay);
+                    phaseEndTime = std::chrono::steady_clock::now();
+                    phaseEndTime += std::chrono::duration_cast<std::chrono::steady_clock::duration, double>((std::chrono::duration<double>)RoundSettings::instance->gameStartDelay);
                 }
                 else if (phaseEndTime < std::chrono::steady_clock::now())
                 {
@@ -158,42 +259,51 @@ void Round::step()
             if (!map) {phase = ERROR; break;}
             std::chrono::steady_clock::time_point t = std::chrono::steady_clock::now();
             double oldRunningTime = secondsRunning;
+            RoundSettings::instance->timeScale = std::max(RoundSettings::instance->timeScale, 0.0);
             secondsRunning = ((std::chrono::duration<double>)(t - timeAtStart)).count() * RoundSettings::instance->timeScale; 
             double delta = secondsRunning - oldRunningTime;
+            deltaTime = delta;
+            if (delta <= 0)
+            {
+                break;
+            }
             for (;!cm.commands.empty();cm.commands.pop_front())
             {
-                Command cmd = cm.commands.front();
+                ConnectionManager::Command cmd = cm.commands.front();
                 switch (cmd.cmd)
                 {
                     case ConnectionManager::Command::ID::MOVE:{
-                        if (cmd.nestID > map->nests.size() || !map->nests[cmd.nestID] || cmd.antID > map->nests[cmd.nestID]->ants.size() || !map->nests[cmd.nestID]->ants[cmd.antID])
+                        if (cmd.nestID > map->nests.size() || !map->nests[cmd.nestID] || cmd.antID > map->antPermanents.size() || !map->antPermanents[cmd.antID] || map->antPermanents[cmd.antID]->parent != map->nests[cmd.nestID])
                         {
                             break;
                         }
                         Ant::AntCommand acmd;
                         acmd.cmd = Ant::AntCommand::ID::MOVE;
+                        acmd.state = Ant::AntCommand::State::ONGOING;
                         acmd.arg = cmd.arg;
-                        map->nests[cmd.nestID]->ants[cmd.antID]->giveCommand(acmd);
+                        map->antPermanents[cmd.antID]->giveCommand(acmd);
                         break;}
                     case ConnectionManager::Command::ID::TINTERACT:{
-                        if (cmd.nestID > map->nests.size() || !map->nests[cmd.nestID] || cmd.antID > map->nests[cmd.nestID]->ants.size() || !map->nests[cmd.nestID]->ants[cmd.antID])
+                        if (cmd.nestID > map->nests.size() || !map->nests[cmd.nestID] || cmd.antID > map->antPermanents.size() || !map->antPermanents[cmd.antID] || map->antPermanents[cmd.antID]->parent != map->nests[cmd.nestID])
                         {
                             break;
                         }
                         Ant::AntCommand acmd;
                         acmd.cmd = Ant::AntCommand::ID::TINTERACT;
+                        acmd.state = Ant::AntCommand::State::ONGOING;
                         acmd.arg = cmd.arg;
-                        map->nests[cmd.nestID]->ants[cmd.antID]->giveCommand(acmd);
+                        map->antPermanents[cmd.antID]->giveCommand(acmd);
                         break;}
                     case ConnectionManager::Command::ID::AINTERACT:{
-                        if (cmd.nestID > map->nests.size() || !map->nests[cmd.nestID] || cmd.antID > map->nests[cmd.nestID]->ants.size() || !map->nests[cmd.nestID]->ants[cmd.antID])
+                        if (cmd.nestID > map->nests.size() || !map->nests[cmd.nestID] || cmd.antID > map->antPermanents.size() || !map->antPermanents[cmd.antID] || map->antPermanents[cmd.antID]->parent != map->nests[cmd.nestID])
                         {
                             break;
                         }
                         Ant::AntCommand acmd;
                         acmd.cmd = Ant::AntCommand::ID::AINTERACT;
+                        acmd.state = Ant::AntCommand::State::ONGOING;
                         acmd.arg = cmd.arg;
-                        map->nests[cmd.nestID]->ants[cmd.antID]->giveCommand(acmd);
+                        map->antPermanents[cmd.antID]->giveCommand(acmd);
                         break;}
                     case ConnectionManager::Command::ID::NEWANT:{
                         if (cmd.nestID > map->nests.size() || !map->nests[cmd.nestID])
@@ -202,10 +312,41 @@ void Round::step()
                         }
                         Nest::NestCommand ncmd;
                         ncmd.cmd = Nest::NestCommand::ID::NEWANT;
+                        ncmd.state = Nest::NestCommand::State::ONGOING;
                         ncmd.arg = cmd.arg;
                         map->nests[cmd.nestID]->giveCommand(ncmd);
                         break;}
                 }
+            }
+            unsigned int c = 0;
+            for (int i = 0; i < map->nests.size(); i++)
+            {
+                Nest*n = map->nests[i];
+                if (n)
+                {
+                    n->step(delta);
+                    if (n->foodCount <= 0)
+                    {
+                        delete n;
+                        map->nests[i] = nullptr; // Notice we're not shrinking the array, to preserve IDs
+                    }
+                    else {c++;} // That seems familiar
+                }
+            }
+            for (Nest*n : map->nests)
+            {
+                if (!n) {continue;}
+                for (int i = 0; i < n->ants.size(); i++)
+                {
+                    if (n->ants[i] == nullptr || n->ants[i]->health <= 0)
+                    {
+                        n->killAnt(i);
+                    }
+                }
+            }
+            if (c == 0)
+            {
+                phase = DONE;
             }
             break;}
         case DONE:
@@ -225,7 +366,7 @@ void Round::step()
 
 void Round::end()
 {
-    // TODO
+    // TODO (Round::end) probably OK
     cm.preclose();
     phase = DONE;
 }
@@ -260,6 +401,10 @@ void Map::init() // Uses RoundSettings::instance to get values
     {
         return;
     }
+    if (Round::instance->logging)
+    {
+        std::cout << "Initializing map using file '" << RoundSettings::instance->mapFile << "'." << std::endl;
+    }
     std::ifstream mapFile(RoundSettings::instance->mapFile, std::ios::in | std::ios::binary);
     if (!mapFile.is_open())
     {
@@ -270,25 +415,29 @@ void Map::init() // Uses RoundSettings::instance to get values
             return;
         }
     }
-    _decode(mapFile);
+    _decode(&mapFile);
+    mapFile.close();
 }
 std::string Map::encode() // Returns a string that can be passed to decode() to copy this map.
 {
     std::string out;
     unsigned short tantc = 0;
-    for (int i = 0; i < std::min(nests.size(), 256); i++) {tantc += std::min(nests[i].ants.size(), 256);}
-    out.reserve(9UL + (unsigned long)std::min(nests.size(), 256) * 9UL + (unsigned long)tantc * 9UL + (unsigned long)size.x*(unsigned long)size.y);
+    for (int i = 0; i < std::min(nests.size(), 256UL); i++) {if (nests[i]) {tantc += std::min(nests[i]->ants.size(), 256UL);}}
+    out.reserve(9UL + (unsigned long)std::min(nests.size(), 256UL) * 9UL + (unsigned long)tantc * 9UL + (unsigned long)size.x*(unsigned long)size.y);
     out += ANTGAME_uinttohex(size.x) + ANTGAME_uinttohex(size.y) + ANTGAME_uchartohex(nests.size()) + '\n';
-    for (int i = 0; i < nests.size(); i++)
+    for (int i = 0; i < nests.size() && i < 256; i++)
     {
-        out += ANTGAME_uinttohex(nests[i]->p.x);
-        out += ANTGAME_uinttohex(nests[i]->p.y);
-        out += ANTGAME_uchartohex((unsigned char)nests[i]->ants.size());
-        for (int j = 0; j < nests[i]->ants.size(); j++)
+        if (nests[i])
         {
-            out += ANTGAME_uinttohex(nests[i]->ants[j]->p.x;
-            out += ANTGAME_uinttohex(nests[i]->ants[j]->p.y;
-            out += ANTGAME_uchartohex(nests[i]->ants[j]->type;
+            out += ANTGAME_uinttohex(nests[i]->p.x);
+            out += ANTGAME_uinttohex(nests[i]->p.y);
+            out += ANTGAME_uchartohex((unsigned char)nests[i]->ants.size());
+            for (int j = 0; j < nests[i]->ants.size() && j < 256; j++)
+            {
+                out += ANTGAME_uinttohex(nests[i]->ants[j]->p.x);
+                out += ANTGAME_uinttohex(nests[i]->ants[j]->p.y);
+                out += ANTGAME_uchartohex(nests[i]->ants[j]->type);
+            }
         }
     }
     return out;
@@ -304,21 +453,22 @@ void Map::decode(std::string string) // Takes a string returned from encode() an
         std::cerr << "Failed to create a stringstream object when decoding map string!" << std::endl;
         return;
     }
-    _decode(mapFile);
+    _decode(&mapFile);
 }
 
 
-void Map::_decode(std::istream mapFile)
+void Map::_decode(std::istream* mapFile)
 {
-    if (!mapFile)
+    if (!(*mapFile))
     {
         return;
     }
-    char headerLine[18];
+    char headerLine[19];
     std::string line = "";
-    mapFile.get(headerLine, 19);
-    if (mapFile.gcount() < 19 || headerLine[18] != '\n')
+    mapFile->read(headerLine, 19);
+    if (mapFile->gcount() < 19 || headerLine[18] != '\n')
     {
+        std::cout << mapFile->gcount() << ", " << (int)headerLine[18] << std::endl;
         std::cerr << "Map string format invalid: Header line too small." << std::endl;
         return;
     }
@@ -332,8 +482,8 @@ void Map::_decode(std::istream mapFile)
     nests.reserve(nestc);
     for (unsigned char i = 0; i < nestc; i++)
     {
-        mapFile.get(headerLine, 19);
-        if (mapFile.gcount() < 19 || headerLine[18] != '\n')
+        mapFile->read(headerLine, 19);
+        if (mapFile->gcount() < 19 || headerLine[18] != '\n')
         {
             std::cerr << "Map string format invalid: Nest header line too small." << std::endl;
             cleanup();
@@ -349,8 +499,8 @@ void Map::_decode(std::istream mapFile)
         n->ants.reserve(antc);
         for (int j = 0; j < antc; j++)
         {
-            mapFile.get(headerLine, 19);
-            if (mapFile.gcount() < 19 || headerLine[18] != '\n')
+            mapFile->read(headerLine, 19);
+            if (mapFile->gcount() < 19 || headerLine[18] != '\n')
             {
                 std::cerr << "Map string format invalid: Ant data line is too small." << std::endl;
                 cleanup();
@@ -371,14 +521,23 @@ void Map::_decode(std::istream mapFile)
     }
     // Actual map data
     map = new unsigned char[(unsigned int)size.x*(unsigned int)size.y];
-    mapFile.get(map, (unsigned int)size.x*(unsigned int)size.y);
-    if (mapFile.gcount() < (unsigned int)size.x * (unsigned int)size.y)
+    mapFile->read((char*)map, (unsigned int)size.x*(unsigned int)size.y);
+    if (mapFile->gcount() < (unsigned int)size.x * (unsigned int)size.y)
     {
         std::cerr << "Map string format invalid: Raw map data is of the wrong size (should be " << size.x * size.y << ")" << std::endl;
         cleanup();
         return;
     }
-
+    for (Nest* n : nests)
+    {
+        if (n->p.x > size.x || n->p.y > size.y)
+        {
+            std::cerr << "A nest is out of bounds!" << std::endl;
+            cleanup();
+            return;
+        }
+        map[n->p.x + n->p.y * size.x] = (unsigned char)Tile::NEST;
+    }
     } catch (std::invalid_argument const& error) {
         std::cerr << "Map string format invalid: Hexadecimal numbers expected! Exception is " << error.what() << std::endl;
         if (n != nullptr)
@@ -391,6 +550,35 @@ void Map::_decode(std::istream mapFile)
         }
         cleanup();
         return;
+    }
+}
+
+
+Map::Tile Map::operator[](Pos p)
+{
+    if (p.x > size.x || p.y > size.y)
+    {
+        return Tile::UNKNOWN;
+    }
+    return (Tile)map[p.x+p.y*size.x];
+}
+
+
+bool Map::tileWalkable(Pos p)
+{
+    if (p.x > size.x || p.y > size.y) {return false;}
+    return tileWalkable((*this)[p]);
+}
+
+
+bool Map::tileWalkable(Tile t)
+{
+    switch (t)
+    {
+        case Tile::WALL:
+            return false;
+        default:
+            return true;
     }
 }
 
@@ -444,9 +632,7 @@ void Nest::init(Map* nparent, Pos npos, int antc) // Takes a parent ptr, a posit
         ants.reserve(antc);
         for (int i = 0; i < antc; i++)
         {
-            Ant*a = new Ant;
-            a->init(this, p, 0);
-            ants.push_back(a);
+            createAnt(0);
         }
     }
 }
@@ -454,35 +640,66 @@ void Nest::init(Map* nparent, Pos npos, int antc) // Takes a parent ptr, a posit
 
 void Nest::step(double delta)
 {
+    foodCount -= delta;
     for (NestCommand& cmd : commands)
     {
+        if (cmd.state != NestCommand::State::ONGOING) {continue;}
         switch (cmd.cmd)
         {
-            case DONE:
-                break;
-            case NEWANT:
-                // TODO
-                cmd.cmd = DONE;
+            case NestCommand::ID::NEWANT:
+                if (foodCount < antTypes[cmd.arg].costMod * RoundSettings::instance->antCost)
+                {
+                    cmd.state = NestCommand::State::FAIL;
+                    break;
+                }
+                foodCount -= antTypes[cmd.arg].costMod * RoundSettings::instance->antCost;
+                createAnt(cmd.arg);
+                cmd.state = NestCommand::State::SUCCESS;
                 break;
         }
     }
-    bool del = false;
-    for (auto it = commands.begin(); it != commands.end(); it++)
+    for (int i = 0; i < ants.size(); i++)
     {
-        if (del)
+        Ant* a = ants[i];
+        if (a)
         {
-            commands.erase(it-1);
+            a->step(delta);
+            if (a->health <= 0)
+            {
+                killAnt(i);
+                i--;
+            }
         }
-        del = false;
-        if (*it.cmd == NestCommand::ID::DONE) {del = true;}
     }
-    if (del && !commands.empty()) {commands.pop_back();}
+}
+
+
+void Nest::createAnt(unsigned char type)
+{
+    Ant*a = new Ant;
+    a->init(this, (DPos)p, type);
+    ants.push_back(a);
+}
+
+
+void Nest::killAnt(int index)
+{
+    Ant*a = ants[index];
+    if (a)
+    {
+        if (a->pid < parent->antPermanents.size())
+        {
+            parent->antPermanents[a->pid] = nullptr;
+            delete a;
+        }
+    }
+    ants.erase(ants.begin() + index);
 }
 
 
 void Nest::giveCommand(NestCommand cmd)
 {
-    // TODO? May need to be changed
+    // TODO? May need to be changed (Nest::giveCommand)
     commands.push_back(cmd);
 }
 
@@ -507,26 +724,169 @@ Nest::~Nest()
 Ant::Ant()
 {
 }
-Ant::Ant(Nest* nparent, Pos np) // Takes a parent ptr and a position. Defaults to type = 0
+Ant::Ant(Nest* nparent, DPos np) // Takes a parent ptr and a position. Defaults to type = 0
 {
     init(nparent, np, 0);
 }
-Ant::Ant(Nest* nparent, Pos np, unsigned char ntype) // Takes a parent ptr, a position and a type
+Ant::Ant(Nest* nparent, DPos np, unsigned char ntype) // Takes a parent ptr, a position and a type
 {
     init(nparent, np, ntype);
 }
-void Ant::init(Nest* nparent, Pos npos, unsigned char ntype) // Takes a parent ptr, a position and a type
+void Ant::init(Nest* nparent, DPos npos, unsigned char ntype) // Takes a parent ptr, a position and a type
 {
     parent = nparent;
     p = npos;
     type = ntype;
+    health = antTypes[type].healthMod * RoundSettings::instance->antHealth;
+    foodCarry = 0;
+    pid = parent->parent->antPermanents.size();
+    parent->parent->antPermanents.push_back(this);
 }
 void Ant::giveCommand(AntCommand com)
 {
-    // TODO? May need to be changed
+    // TODO? May need to be changed (Ant::giveCommand)
     commands.push_back(com); 
 }
-void Ant::step(double)
+void Ant::step(double delta)
 {
-    // TODO
+    bool moved = false;
+    for (AntCommand& cmd : commands)
+    {
+        switch (cmd.cmd)
+        {
+            case AntCommand::ID::DONE:
+            case AntCommand::ID::FAIL:
+                break;
+            case AntCommand::ID::MOVE:{
+                moved = true;
+                DPos dest = {(double)(cmd.arg>>32), (double)(cmd.arg & 0xffffffff)};
+                dest.x -= p.x;
+                dest.y -= p.y;
+                double destLen = dest.magnitude();
+                dest.x = std::min(dest.x / destLen * delta * antTypes[type].speedMod * RoundSettings::instance->movementSpeed, dest.x + 0.5);
+                dest.y = std::min(dest.y / destLen * delta * antTypes[type].speedMod * RoundSettings::instance->movementSpeed, dest.y + 0.5);
+                Pos npos = p + dest;
+                Pos v = p;
+                for (int i = 0; i < std::ceil(std::max(dest.x, dest.y)); i++)
+                {
+                    unsigned int x = p.x + i * dest.x / std::max(dest.x, dest.y);
+                    unsigned int y = p.y + i * dest.y / std::max(dest.x, dest.y);
+                    Pos ip{x, y};
+                    if (x < 0)
+                    {
+                        // To review later
+                        npos.x = -1;
+                        npos.y = y;
+                        break;
+                    }
+                    else if (y < 0)
+                    {
+                        npos.x = x;
+                        npos.y = -1;
+                        break;
+                    }
+                    else if (x > parent->parent->size.x)
+                    {
+                        npos.x = parent->parent->size.x;
+                        npos.y = y;
+                        break;
+                    }
+                    else if (y > parent->parent->size.y)
+                    {
+                        npos.y = parent->parent->size.y;
+                        npos.x = x;
+                        break;
+                    }
+                    else if (!parent->parent->tileWalkable(ip))
+                    {
+                        npos = ip;
+                        break;
+                    }
+                    v = ip;
+                }
+                if (parent->parent->tileWalkable(npos))
+                {
+                    p = p + dest;
+                }
+                else
+                {
+                    cmd.state = AntCommand::State::FAIL;
+                    p = v;
+                    p.x += 0.5;
+                    p.y += 0.5;
+                }
+                if (std::floor(p.x) == cmd.arg>>32 && std::floor(p.y) == (cmd.arg&0xffffffff))
+                {
+                    cmd.state = AntCommand::State::SUCCESS;
+                }
+                break;}
+            case AntCommand::ID::TINTERACT:{
+                Pos target = {(unsigned int)(cmd.arg>>32), (unsigned int)(cmd.arg&0xffffffff)};
+                if (((DPos)target - p).magnitude() > RoundSettings::instance->pickupRange)
+                {
+                    if (!moved) // This basically means if you're moving somewhere it'll let you retry next frame
+                    {
+                        cmd.state = AntCommand::State::FAIL;
+                    }
+                }
+                else
+                {
+                    switch ((*parent->parent)[target])
+                    {
+                        case Map::Tile::FOOD:
+                            if (antTypes[type].capacity * RoundSettings::instance->capacityMod < foodCarry + RoundSettings::instance->foodYield)
+                            {
+                                cmd.state = AntCommand::State::FAIL;
+                            }
+                            else
+                            {
+                                foodCarry += RoundSettings::instance->foodYield;
+                                cmd.state = AntCommand::State::SUCCESS;
+                            }
+                            break;
+                        case Map::Tile::NEST:
+                            cmd.state = AntCommand::State::FAIL;
+                            for (Nest* n : parent->parent->nests)
+                            {
+                                if (n == nullptr || n->p != target)
+                                {
+                                    continue;
+                                }
+                                if (n == parent)
+                                {
+                                    parent->foodCount += foodCarry;
+                                    foodCarry = 0;
+                                }
+                                else
+                                {
+                                    n->foodCount -= std::min(RoundSettings::instance->foodTheftYield, antTypes[type].capacity * RoundSettings::instance->capacityMod - foodCarry);
+                                    foodCarry += std::min(RoundSettings::instance->foodTheftYield, antTypes[type].capacity * RoundSettings::instance->capacityMod - foodCarry);
+                                }
+                                cmd.state = AntCommand::State::SUCCESS;
+                            }
+                            break;
+                        default:
+                            cmd.state = AntCommand::State::FAIL;
+                            break;
+                    }
+                }
+                break;}
+            case AntCommand::ID::AINTERACT:{
+                if (cmd.arg >= parent->parent->antPermanents.size() || !parent->parent->antPermanents[cmd.arg] || parent->parent->antPermanents[cmd.arg]->health <= 0)
+                {
+                    cmd.state = AntCommand::State::FAIL;
+                    break;
+                }
+                if ((parent->parent->antPermanents[cmd.arg]->p - p).magnitude() > RoundSettings::instance->attackRange)
+                {
+                    cmd.state = AntCommand::State::FAIL;
+                    break;
+                }
+                parent->parent->antPermanents[cmd.arg]->health -= antTypes[type].damageMod * RoundSettings::instance->attackDamage;
+                cmd.state = AntCommand::State::SUCCESS;
+                break;}
+        }
+    }
+    p.x = std::min(std::max(p.x, 0.0), (double)parent->parent->size.x);
+    p.y = std::min(std::max(p.y, 0.0), (double)parent->parent->size.y);
 }

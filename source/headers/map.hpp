@@ -7,12 +7,33 @@
 #ifndef MAP_HPP
 #define MAP_HPP
 
-
+class DPos;
 class Pos
 {
     public:
     unsigned int x;
     unsigned int y;
+    Pos(){}
+    Pos(DPos);
+    Pos(unsigned int, unsigned int);
+    Pos& operator=(DPos);
+    bool operator==(Pos);
+    bool operator!=(Pos);
+};
+
+
+class DPos
+{
+    public:
+    double x;
+    double y;
+    DPos(){}
+    DPos(Pos);
+    DPos(double, double);
+    DPos& operator=(Pos);
+    DPos operator+(DPos);
+    DPos operator-(DPos);
+    double magnitude();
 };
 
 class Map;
@@ -28,6 +49,8 @@ class Round
     double secondsRunning;
     std::chrono::steady_clock::time_point phaseEndTime; // Not affected by time scale
     std::chrono::steady_clock::time_point timeAtStart;
+    double deltaTime;
+    bool logging = false;
     enum Phase {INIT, WAIT, RUNNING, DONE, CLOSED, ERROR};
     Phase phase = INIT;
     Map*map;
@@ -47,16 +70,21 @@ class Round
 class Map
 {
     public:
+    enum class Tile : unsigned char {EMPTY, WALL, FOOD, NEST, UNKNOWN=255};
+    static bool tileWalkable(Tile);
+    bool tileWalkable(Pos);
     std::vector<Nest*> nests;
+    std::vector<Ant*> antPermanents;
     Pos size;
     unsigned char* map; // The raw map data. Should be size.x*size.y bytes. To access data at X, Y, index into this by [x+y*size.x].
     Map();
     void init(); // Uses RoundSettings::instance to get values
     std::string encode(); // Returns a string that can be passed to decode() to copy this map.
     void decode(std::string); // Takes a string returned from encode() and copies that map to this instance.
-    void _decode(std::istream);
+    void _decode(std::istream*);
     void freeMap();
     void cleanup();
+    Tile operator[](Pos);
     ~Map();
 };
 
@@ -66,8 +94,11 @@ class Nest
     public:
     class NestCommand
     {
-        enum class ID : unsigned char {DONE, NEWANT};
+        public:
+        enum class ID : unsigned char {NEWANT};
         ID cmd;
+        enum class State : unsigned char {ONGOING, SUCCESS, FAIL};
+        State state;
         unsigned long arg;
     };
     Map*parent;
@@ -82,6 +113,8 @@ class Nest
     void giveCommand(NestCommand);
     void step(double);
     void cleanup();
+    void createAnt(unsigned char);
+    void killAnt(int);
     ~Nest();
 };
 
@@ -91,18 +124,24 @@ class Ant
     public:
     class AntCommand
     {
-        enum class ID : unsigned char {DONE, MOVE, TINTERACT, AINTERACT};
+        public:
+        enum class ID : unsigned char {DONE, FAIL, MOVE, TINTERACT, AINTERACT};
         ID cmd;
+        enum class State : unsigned char {ONGOING, SUCCESS, FAIL};
+        State state;
         unsigned long arg;
     };
     Nest*parent;
-    Pos p;
+    DPos p;
     unsigned char type;
+    unsigned int pid;
     std::deque<AntCommand> commands;
+    double health;
+    double foodCarry;
     Ant();
-    Ant(Nest*, Pos); // Takes a parent ptr and a position. Defaults to type = 0
-    Ant(Nest*, Pos, unsigned char); // Takes a parent ptr, a position and a type
-    void init(Nest*, Pos, unsigned char); // Takes a parent ptr, a position and a type
+    Ant(Nest*, DPos); // Takes a parent ptr and a position. Defaults to type = 0
+    Ant(Nest*, DPos, unsigned char); // Takes a parent ptr, a position and a type
+    void init(Nest*, DPos, unsigned char); // Takes a parent ptr, a position and a type
     void giveCommand(AntCommand);
     void step(double);
 };

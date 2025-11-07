@@ -3,6 +3,7 @@
 #include <forward_list>
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include "sockets.hpp"
 #ifndef NETWORK_HPP
 #define NETWORK_HPP
@@ -42,14 +43,17 @@ class Player
 };
 
 
+class Round;
 class ConnectionManager
 {
+    friend Round;
     public:
     class Command
     {
+        public:
         enum class ID : unsigned char {MOVE, TINTERACT, AINTERACT, NEWANT};
         unsigned char nestID;
-        signed short antID;
+        unsigned int antID;
         ID cmd;
         unsigned long arg;
     };
@@ -81,7 +85,7 @@ class ConnectionManager
 
 class RoundSettings
 {
-    void Round::configLine(std::string identifier, std::string data);
+    void configLine(std::string identifier, std::string data);
     public:
     static RoundSettings* instance;
     std::string configFile;
@@ -90,6 +94,17 @@ class RoundSettings
     unsigned int port;
     double gameStartDelay;
     double timeScale;
+    unsigned int startingFood;
+    double movementSpeed;
+    double hungerRate;
+    double foodYield;
+    double foodTheftYield;
+    double antCost;
+    double attackRange;
+    double attackDamage;
+    double antHealth;
+    double pickupRange;
+    double capacityMod;
     RoundSettings();
     void loadConfig(std::string config);
 };

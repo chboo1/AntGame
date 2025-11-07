@@ -1,11 +1,11 @@
 LIBRARIES := $(wildcard source/lib/*.cpp)
-all: client server tests
+all: AntGameServer tests res
 	echo All
 
 libs: out/*.o
 
 
-tests: libs tests.cpp
+tests: out/*.o tests.cpp
 ifeq ($(OS),Windows_NT)
 	g++ out/*.o tests.cpp -lws2_32 -Isource/headers -o tests
 else
@@ -13,11 +13,13 @@ else
 endif
 
 
-client: libs
-	echo Client >> client
+AntGameServer: server.cpp out/*.o
+ifeq ($(OS),Windows_NT)
+	g++ out/*.o server.cpp -lws2_32 -Isource/headers -o AntGameServer
+else
+	g++ out/*.o server.cpp -Isource/headers -o AntGameServer
+endif
 
-server: libs
-	echo Server >> server
 
 out/*.o: source/lib/*.cpp out
 ifeq ($(OS),Windows_NT)
@@ -28,7 +30,15 @@ else
 	mv source/lib/*.o out
 endif
 
+
 out:
 	mkdir out
 
-.PHONY: all libs client
+
+res: resources/mapMaker
+
+
+resources/mapMaker: resources/mapMaker.cpp
+	g++ resources/mapMaker.cpp -o resources/mapMaker
+
+.PHONY: all libs client res

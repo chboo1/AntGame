@@ -58,10 +58,10 @@ There are a total of three management requests and two management responses that
 |0x01|PING - The client is either making sure this server is alive or is answering another ping.| \- | \- | \- | \- | \- |
 |0x02|BYE - The client is either acknowledging a server BYE or letting the server know it's disconnecting.| \- | \- | \- | \- | \- |
 |0x03|NAME - The client wants to define its name.| Size of string ( 4 bytes ) | Name string (variable length, indicated by the size of string field)| \- | \- | \- |
-|0x04|WALK - The client wants an ant to walk to a specified position.|Ant ID (1 byte)|X position (4 bytes)|Y position (4 bytes)| \- | \- |
+|0x04|WALK - The client wants an ant to walk to a specified position.|Ant ID (4 bytes)|X position (4 bytes)|Y position (4 bytes)| \- | \- |
 |0x05|SETTINGS - The client is asking for the game's settings.| \- | \- | \- | \- |The size of the file, then a configuration file, describing the current round's settings. It is valid to send the configuration file that initialized this round as is or to send nothing, meaning default settings.|
-|0x06|TINTERACT - The client wants an ant to interact with a tile at a specified position.|Ant ID (1 byte)|X position (4 bytes)|Y position (4 bytes)| \- | \- |
-|0x07|AINTERACT - The client wants an ant to interact with another ant at the specified nest and ant IDs.|Self Ant ID (1 byte)|Target Nest ID (1 byte)|Target Ant ID (1 byte)| \- | \- |
+|0x06|TINTERACT - The client wants an ant to interact with a tile at a specified position.|Ant ID (4 bytes)|X position (4 bytes)|Y position (4 bytes)| \- | \- |
+|0x07|AINTERACT - The client wants an ant to interact with another ant at the specified nest and ant IDs.|Self Ant ID (4 bytes)|Target Ant ID (4 bytes)| \- | \- | \- |
 |0x08|NEWANT - The client wishes to make a new ant at their nest.|Ant type (1 byte)| \- | \- | \- | \- |
 
 ### Response IDs
@@ -75,6 +75,8 @@ There are a total of three management requests and two management responses that
 |0x04|START - The server is starting the game now!| \- |Yes|
 |0x05|OK, DATA - The server accepts the request and is carrying the requested data. The type of data will depend on the request.| Any |No|
 |0x06|FAILURE - The server cannot fulfill the request because of its own error.| \- |No|
+|0x07|CMDSUCCESS - The server is indicating that a command has succeeded|Command data (1 byte cmd ID, 4 bytes ant ID, 1-8 bytes argument, depending on cmd ID)|Yes|
+|0x08|CMDFAIL - The server is indicating that a command has failed|Command data (1 byte cmd ID, 4 bytes ant ID, 1-8 bytes argument, depending on cmd ID)|Yes|
 
 ### Placeholder
 I haven't made the part of the document whatever you clicked on should link to.
