@@ -55,7 +55,7 @@ Pos::Pos(DPos o)
 }
 
 
-Pos::Pos(unsigned int nx, unsigned int ny)
+Pos::Pos(unsigned short nx, unsigned short ny)
 {
     x = nx;
     y = ny;
@@ -200,6 +200,7 @@ bool Round::open(std::string config, int port)
     }
     phase = WAIT;
     secondsRunning = 0;
+    std::cout << "Done opening" << std::endl;
     return true;
 }
 
@@ -423,19 +424,19 @@ std::string Map::encode() // Returns a string that can be passed to decode() to 
     std::string out;
     unsigned short tantc = 0;
     for (int i = 0; i < std::min(nests.size(), 256UL); i++) {if (nests[i]) {tantc += std::min(nests[i]->ants.size(), 256UL);}}
-    out.reserve(9UL + (unsigned long)std::min(nests.size(), 256UL) * 9UL + (unsigned long)tantc * 9UL + (unsigned long)size.x*(unsigned long)size.y);
-    out += ANTGAME_uinttohex(size.x) + ANTGAME_uinttohex(size.y) + ANTGAME_uchartohex(nests.size()) + '\n';
+    out.reserve(10UL + (unsigned long)std::min(nests.size(), 256UL) * 10UL + (unsigned long)tantc * 10UL + (unsigned long)size.x*(unsigned long)size.y);
+    out += ANTGAME_ushorttohex(size.x) + ANTGAME_ushorttohex(size.y) + ANTGAME_uchartohex(nests.size()) + '\n';
     for (int i = 0; i < nests.size() && i < 256; i++)
     {
         if (nests[i])
         {
-            out += ANTGAME_uinttohex(nests[i]->p.x);
-            out += ANTGAME_uinttohex(nests[i]->p.y);
+            out += ANTGAME_ushorttohex(nests[i]->p.x);
+            out += ANTGAME_ushorttohex(nests[i]->p.y);
             out += ANTGAME_uchartohex((unsigned char)nests[i]->ants.size());
             for (int j = 0; j < nests[i]->ants.size() && j < 256; j++)
             {
-                out += ANTGAME_uinttohex(nests[i]->ants[j]->p.x);
-                out += ANTGAME_uinttohex(nests[i]->ants[j]->p.y);
+                out += ANTGAME_ushorttohex((unsigned short)std::floor(nests[i]->ants[j]->p.x));
+                out += ANTGAME_ushorttohex((unsigned short)std::floor(nests[i]->ants[j]->p.y));
                 out += ANTGAME_uchartohex(nests[i]->ants[j]->type);
             }
         }
@@ -463,56 +464,56 @@ void Map::_decode(std::istream* mapFile)
     {
         return;
     }
-    char headerLine[19];
+    char headerLine[11];
     std::string line = "";
-    mapFile->read(headerLine, 19);
-    if (mapFile->gcount() < 19 || headerLine[18] != '\n')
+    mapFile->read(headerLine, 11);
+    if (mapFile->gcount() < 11 || headerLine[10] != '\n')
     {
-        std::cout << mapFile->gcount() << ", " << (int)headerLine[18] << std::endl;
         std::cerr << "Map string format invalid: Header line too small." << std::endl;
         return;
     }
-    line.append(headerLine, 18);
+    line.append(headerLine, 10);
     Nest*n = nullptr;
     Ant*a = nullptr;
     try {
-    size.x = (unsigned int)std::stoul(line.substr(0, 8), nullptr, 16);
-    size.y = (unsigned int)std::stoul(line.substr(8, 8), nullptr, 16);
-    unsigned char nestc = (unsigned char)std::stoul(line.substr(16, 2), nullptr, 16);
+    size.x = std::min((unsigned short)std::stoul(line.substr(0, 4), nullptr, 16), (unsigned short)65500);
+    size.y = std::min((unsigned short)std::stoul(line.substr(4, 4), nullptr, 16), (unsigned short)65500);
+    unsigned char nestc = (unsigned char)std::stoul(line.substr(8, 2), nullptr, 16);
     nests.reserve(nestc);
     for (unsigned char i = 0; i < nestc; i++)
     {
-        mapFile->read(headerLine, 19);
-        if (mapFile->gcount() < 19 || headerLine[18] != '\n')
+        mapFile->read(headerLine, 11);
+        if (mapFile->gcount() < 11 || headerLine[10] != '\n')
         {
             std::cerr << "Map string format invalid: Nest header line too small." << std::endl;
             cleanup();
             return;
         }
         line = "";
-        line.append(headerLine, 18);
+        line.append(headerLine, 10);
         n = new Nest;
-        n->p.x = (unsigned int)std::stoul(line.substr(0, 8), nullptr, 16);
-        n->p.y = (unsigned int)std::stoul(line.substr(8, 8), nullptr, 16);
-        unsigned char antc = (unsigned char)std::stoul(line.substr(16, 2), nullptr, 16);
+        n->p.x = (unsigned int)std::stoul(line.substr(0, 4), nullptr, 16);
+        n->p.y = (unsigned int)std::stoul(line.substr(4, 4), nullptr, 16);
+        unsigned char antc = (unsigned char)std::stoul(line.substr(8, 2), nullptr, 16);
         n->parent = this;
         n->ants.reserve(antc);
+        n->foodCount = RoundSettings::instance->startingFood;
         for (int j = 0; j < antc; j++)
         {
-            mapFile->read(headerLine, 19);
-            if (mapFile->gcount() < 19 || headerLine[18] != '\n')
+            mapFile->read(headerLine, 11);
+            if (mapFile->gcount() < 11 || headerLine[10] != '\n')
             {
                 std::cerr << "Map string format invalid: Ant data line is too small." << std::endl;
                 cleanup();
                 return;
             }
             line = "";
-            line.append(headerLine, 18);
+            line.append(headerLine, 10);
             a = new Ant;
-            a->p.x = (unsigned int)std::stoul(line.substr(0, 8), nullptr, 16);
-            a->p.y = (unsigned int)std::stoul(line.substr(8, 8), nullptr, 16);
-            a->type = (unsigned char)std::stoul(line.substr(16, 2), nullptr, 16);
-            a->parent = n;
+            DPos position;
+            position.x = (unsigned int)std::stoul(line.substr(0, 4), nullptr, 16);
+            position.y = (unsigned int)std::stoul(line.substr(4, 4), nullptr, 16);
+            a->init(n, position, (unsigned char)std::stoul(line.substr(8, 2), nullptr, 16));
             n->ants.push_back(a);
             a = nullptr;
         }
@@ -653,8 +654,13 @@ void Nest::step(double delta)
                     break;
                 }
                 foodCount -= antTypes[cmd.arg].costMod * RoundSettings::instance->antCost;
-                createAnt(cmd.arg);
+                Ant* a = createAnt(cmd.arg);
                 cmd.state = NestCommand::State::SUCCESS;
+                ConnectionManager::AntEvent ae;
+                ae.pid = a->pid;
+                ae.health = a->health;
+                ae.foodCarry = a->foodCarry;
+                Round::instance->cm.antEventQueue.push_back(ae);
                 break;
         }
     }
@@ -674,11 +680,12 @@ void Nest::step(double delta)
 }
 
 
-void Nest::createAnt(unsigned char type)
+Ant* Nest::createAnt(unsigned char type)
 {
     Ant*a = new Ant;
     a->init(this, (DPos)p, type);
     ants.push_back(a);
+    return a;
 }
 
 
@@ -699,7 +706,6 @@ void Nest::killAnt(int index)
 
 void Nest::giveCommand(NestCommand cmd)
 {
-    // TODO? May need to be changed (Nest::giveCommand)
     commands.push_back(cmd);
 }
 
@@ -744,7 +750,6 @@ void Ant::init(Nest* nparent, DPos npos, unsigned char ntype) // Takes a parent 
 }
 void Ant::giveCommand(AntCommand com)
 {
-    // TODO? May need to be changed (Ant::giveCommand)
     commands.push_back(com); 
 }
 void Ant::step(double delta)
@@ -754,12 +759,9 @@ void Ant::step(double delta)
     {
         switch (cmd.cmd)
         {
-            case AntCommand::ID::DONE:
-            case AntCommand::ID::FAIL:
-                break;
             case AntCommand::ID::MOVE:{
                 moved = true;
-                DPos dest = {(double)(cmd.arg>>32), (double)(cmd.arg & 0xffffffff)};
+                DPos dest = {ConnectionManager::getAGNPshortdouble(cmd.arg>>32), ConnectionManager::getAGNPshortdouble(cmd.arg & 0xffffffff)};
                 dest.x -= p.x;
                 dest.y -= p.y;
                 double destLen = dest.magnitude();
@@ -769,8 +771,8 @@ void Ant::step(double delta)
                 Pos v = p;
                 for (int i = 0; i < std::ceil(std::max(dest.x, dest.y)); i++)
                 {
-                    unsigned int x = p.x + i * dest.x / std::max(dest.x, dest.y);
-                    unsigned int y = p.y + i * dest.y / std::max(dest.x, dest.y);
+                    unsigned short x = p.x + (double)i * dest.x / std::max(dest.x, dest.y);
+                    unsigned short y = p.y + (double)i * dest.y / std::max(dest.x, dest.y);
                     Pos ip{x, y};
                     if (x < 0)
                     {
@@ -815,13 +817,13 @@ void Ant::step(double delta)
                     p.x += 0.5;
                     p.y += 0.5;
                 }
-                if (std::floor(p.x) == cmd.arg>>32 && std::floor(p.y) == (cmd.arg&0xffffffff))
+                if (abs(std::floor(p.x) - ConnectionManager::makeAGNPshortdouble(cmd.arg>>32)) < 0.5 && abs(std::floor(p.y) - ConnectionManager::makeAGNPshortdouble(cmd.arg&0xffffffff)) < 0.5)
                 {
                     cmd.state = AntCommand::State::SUCCESS;
                 }
                 break;}
             case AntCommand::ID::TINTERACT:{
-                Pos target = {(unsigned int)(cmd.arg>>32), (unsigned int)(cmd.arg&0xffffffff)};
+                Pos target = {(unsigned short)(cmd.arg>>16), (unsigned short)(cmd.arg&0xffff)};
                 if (((DPos)target - p).magnitude() > RoundSettings::instance->pickupRange)
                 {
                     if (!moved) // This basically means if you're moving somewhere it'll let you retry next frame
@@ -841,7 +843,18 @@ void Ant::step(double delta)
                             else
                             {
                                 foodCarry += RoundSettings::instance->foodYield;
+                                parent->parent->map[target.x+target.y*parent->parent->size.x] = (unsigned char)Map::Tile::EMPTY;
                                 cmd.state = AntCommand::State::SUCCESS;
+                                ConnectionManager::MapEvent me;
+                                me.x = target.x;
+                                me.y = target.y;
+                                me.tile = (unsigned char)Map::Tile::EMPTY;
+                                ConnectionManager::AntEvent ae;
+                                ae.pid = pid;
+                                ae.foodCarry = foodCarry;
+                                ae.health = health;
+                                Round::instance->cm.mapEventQueue.push_back(me);
+                                Round::instance->cm.antEventQueue.push_back(ae);
                             }
                             break;
                         case Map::Tile::NEST:
@@ -856,11 +869,21 @@ void Ant::step(double delta)
                                 {
                                     parent->foodCount += foodCarry;
                                     foodCarry = 0;
+                                    ConnectionManager::AntEvent ae;
+                                    ae.pid = pid;
+                                    ae.foodCarry = foodCarry;
+                                    ae.health = health;
+                                    Round::instance->cm.antEventQueue.push_back(ae);
                                 }
                                 else
                                 {
                                     n->foodCount -= std::min(RoundSettings::instance->foodTheftYield, antTypes[type].capacity * RoundSettings::instance->capacityMod - foodCarry);
                                     foodCarry += std::min(RoundSettings::instance->foodTheftYield, antTypes[type].capacity * RoundSettings::instance->capacityMod - foodCarry);
+                                    ConnectionManager::AntEvent ae;
+                                    ae.pid = pid;
+                                    ae.foodCarry = foodCarry;
+                                    ae.health = health;
+                                    Round::instance->cm.antEventQueue.push_back(ae);
                                 }
                                 cmd.state = AntCommand::State::SUCCESS;
                             }
@@ -879,11 +902,20 @@ void Ant::step(double delta)
                 }
                 if ((parent->parent->antPermanents[cmd.arg]->p - p).magnitude() > RoundSettings::instance->attackRange)
                 {
-                    cmd.state = AntCommand::State::FAIL;
+                    if (!moved)
+                    {
+                        cmd.state = AntCommand::State::FAIL;
+                    }
                     break;
                 }
-                parent->parent->antPermanents[cmd.arg]->health -= antTypes[type].damageMod * RoundSettings::instance->attackDamage;
                 cmd.state = AntCommand::State::SUCCESS;
+                Ant* ea = parent->parent->antPermanents[cmd.arg];
+                ea->health -= antTypes[type].damageMod * RoundSettings::instance->attackDamage;
+                ConnectionManager::AntEvent ae;
+                ae.pid = ea->pid;
+                ae.health = ea->health;
+                ae.foodCarry = ea->foodCarry;
+                Round::instance->cm.antEventQueue.push_back(ae);
                 break;}
         }
     }

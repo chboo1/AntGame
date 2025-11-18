@@ -23,6 +23,74 @@ class Viewer
 };
 
 
+class Player;
+class Round;
+class Nest;
+class Ant;
+class ConnectionManager
+{
+    friend Round;
+    friend Nest;
+    friend Ant;
+    public:
+    struct Command
+    {
+        enum class ID : unsigned char {MOVE, TINTERACT, AINTERACT, NEWANT};
+        unsigned char nestID;
+        unsigned int antID;
+        ID cmd;
+        unsigned long arg;
+    };
+    struct AntEvent
+    {
+        unsigned int pid;
+        double health;
+        double foodCarry;
+    };
+    struct MapEvent
+    {
+        unsigned short x;
+        unsigned short y;
+        unsigned char tile;
+    };
+
+    static unsigned int getAGNPuint(std::string);
+    static std::string makeAGNPuint(std::uint32_t);
+    static unsigned short getAGNPushort(std::string);
+    static std::string makeAGNPushort(std::uint16_t);
+    static double getAGNPshortdouble(unsigned int num);
+    static unsigned int makeAGNPshortdouble(double num);
+    static unsigned long makeAGNPdouble(double num);
+    static double getAGNPdouble(unsigned long num);
+    static std::string makeAGNPdoublestr(double num);
+
+    private:
+    std::vector<Player*> players;
+    std::forward_list<Viewer*> viewers;
+    std::deque<Command> commands;
+    std::deque<AntEvent> antEventQueue;
+    std::deque<MapEvent> mapEventQueue;
+
+    void handleViewers();
+    void handlePlayers();
+    bool httpResponse(Viewer*);
+    bool sendResponse(Viewer*, std::string, std::string);
+    bool _sendResponse(Viewer*, std::string, std::string);
+    bool isValid(Viewer*);
+    bool isValid(Player*);
+    bool playerGreeting(Viewer*);
+    enum class RequestID : unsigned char {JOIN, NONE=0, PING, BYE, NAME, WALK, SETTINGS, TINTERACT, AINTERACT, NEWANT, MAP, CHANGELOG};
+    enum class ResponseID : unsigned char {OK, DENY, PING, BYE, START, OKDATA, FAILURE, CMDSUCCESS, CMDFAIL};
+    bool interpretRequests(Player*);
+    public:
+    ConnectionManager();
+    void start();
+    void step();
+    void preclose();
+    void reset();
+};
+
+
 class Player
 {
     public:
@@ -36,50 +104,12 @@ class Player
     std::string name = "";
     unsigned int messageSizeLeft = 0;
     unsigned int messageRequestsLeft = 0;
+    std::deque<ConnectionManager::AntEvent>::iterator antEventPos;
+    std::deque<ConnectionManager::MapEvent>::iterator mapEventPos;
     Player();
     Player(Connection*);
-    Player(Viewer);
+    Player(Viewer*);
     ~Player();
-};
-
-
-class Round;
-class ConnectionManager
-{
-    friend Round;
-    public:
-    class Command
-    {
-        public:
-        enum class ID : unsigned char {MOVE, TINTERACT, AINTERACT, NEWANT};
-        unsigned char nestID;
-        unsigned int antID;
-        ID cmd;
-        unsigned long arg;
-    };
-    private:
-    std::vector<Player*> players;
-    std::forward_list<Viewer*> viewers;
-    std::deque<Command> commands;
-
-    void handleViewers();
-    void handlePlayers();
-    unsigned int getAGNPuint(std::string);
-    std::string makeAGNPuint(std::uint32_t);
-    bool httpResponse(Viewer*);
-    bool sendResponse(Viewer*, std::string, std::string);
-    bool isValid(Viewer*);
-    bool isValid(Player*);
-    bool playerGreeting(Viewer*);
-    enum class RequestID : unsigned char {JOIN, NONE=0, PING, BYE, NAME, WALK, SETTINGS, TINTERACT, AINTERACT, NEWANT};
-    enum class ResponseID : unsigned char {OK, DENY, PING, BYE, START, OKDATA, FAILURE};
-    bool interpretRequests(Player*);
-    public:
-    ConnectionManager();
-    void start();
-    void step();
-    void preclose();
-    void reset();
 };
 
 
@@ -94,7 +124,7 @@ class RoundSettings
     unsigned int port;
     double gameStartDelay;
     double timeScale;
-    unsigned int startingFood;
+    double startingFood;
     double movementSpeed;
     double hungerRate;
     double foodYield;

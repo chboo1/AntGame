@@ -12,3 +12,5 @@ tests.exe
 .DS_Store
 AntGameServer
 resources/mapMaker
+dumpLog
+dummyClient

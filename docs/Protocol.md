@@ -57,12 +57,14 @@ There are a total of three management requests and two management responses that
 |0x00|NONE - Specifically when used as a request ID echo, this could mean the server is sending an unsolicited message.| \- | \- | \- | \- | \- |
 |0x01|PING - The client is either making sure this server is alive or is answering another ping.| \- | \- | \- | \- | \- |
 |0x02|BYE - The client is either acknowledging a server BYE or letting the server know it's disconnecting.| \- | \- | \- | \- | \- |
-|0x03|NAME - The client wants to define its name.| Size of string ( 4 bytes ) | Name string (variable length, indicated by the size of string field)| \- | \- | \- |
-|0x04|WALK - The client wants an ant to walk to a specified position.|Ant ID (4 bytes)|X position (4 bytes)|Y position (4 bytes)| \- | \- |
+|0x03|NAME - The client wants to define its name.| Size of string ( 1 byte, max 128 ) | Name string (variable length, indicated by the size of string field)| \- | \- | \- |
+|0x04|WALK - The client wants an ant to walk to a specified position.|Ant ID (4 bytes)|X position (4 bytes 2-2 fp)|Y position (4 bytes 2-2 fp)| \- | \- |
 |0x05|SETTINGS - The client is asking for the game's settings.| \- | \- | \- | \- |The size of the file, then a configuration file, describing the current round's settings. It is valid to send the configuration file that initialized this round as is or to send nothing, meaning default settings.|
-|0x06|TINTERACT - The client wants an ant to interact with a tile at a specified position.|Ant ID (4 bytes)|X position (4 bytes)|Y position (4 bytes)| \- | \- |
+|0x06|TINTERACT - The client wants an ant to interact with a tile at a specified position.|Ant ID (4 bytes)|X position (2 bytes)|Y position (2 bytes)| \- | \- |
 |0x07|AINTERACT - The client wants an ant to interact with another ant at the specified nest and ant IDs.|Self Ant ID (4 bytes)|Target Ant ID (4 bytes)| \- | \- | \- |
 |0x08|NEWANT - The client wishes to make a new ant at their nest.|Ant type (1 byte)| \- | \- | \- | \- |
+|0x09|MAP - The client wishes to know the full map| \- | \- | \- | \- |A map data instance (see later)|
+|0x0a|CHANGELOG - The client wishes to know everything that has changed on the map since their last call in to either MAP or CHANGELOG| \- | \- | \- | \- |A changelog data instance (see later)|
 
 ### Response IDs
 
@@ -75,8 +77,54 @@ There are a total of three management requests and two management responses that
 |0x04|START - The server is starting the game now!| \- |Yes|
 |0x05|OK, DATA - The server accepts the request and is carrying the requested data. The type of data will depend on the request.| Any |No|
 |0x06|FAILURE - The server cannot fulfill the request because of its own error.| \- |No|
-|0x07|CMDSUCCESS - The server is indicating that a command has succeeded|Command data (1 byte cmd ID, 4 bytes ant ID, 1-8 bytes argument, depending on cmd ID)|Yes|
-|0x08|CMDFAIL - The server is indicating that a command has failed|Command data (1 byte cmd ID, 4 bytes ant ID, 1-8 bytes argument, depending on cmd ID)|Yes|
+|0x07|CMDSUCCESS - The server is indicating that a command has succeeded|Command data (1 byte cmd ID, 4 bytes ant ID (if ant command), 1-8 bytes argument, depending on cmd ID)|Yes|
+|0x08|CMDFAIL - The server is indicating that a command has failed|Command data (1 byte cmd ID, 4 bytes ant ID (if ant command), 1-8 bytes argument, depending on cmd ID)|Yes|
+
+### Map and changelog data types
+
+Both of these data types list the state of the map, but each in different ways. The map data type is a full overview of everything - every nest, ant and tile, while the changelog data type will only list changes since the last changelog or map request. This means that you need at least one map request before making changelog requests, but that once this is done, it is more efficient to make changelog requests all the time unless a desync is suspected, as changelogs are, naturally, much smaller.
+A map data type has the following components:
+ - Map width (2 bytes)
+ - Map height (2 bytes)
+ - Nest count (1 byte)
+ - For each nest:
+	 + Food amount (8 bytes 4-4 fp*)
+	 + X position (2 bytes)
+	 + Y position (2 bytes)
+	 + Ant count (1 byte)
+	 + For each ant:
+		 * X position (4 bytes 2-2 fp*)
+		 * Y position (4 bytes 2-2 fp*)
+		 * Type (1 byte)
+		 * Permanent ant ID (4 bytes)
+		 * Health (8 bytes 4-4 fp*)
+		 * Food carried (8 bytes 4-4 fp*)
+- Literal map data (Width*Height bytes)
+
+Meaning a size of 5+13*n+29*a+w*h where n is the amount of nests, a is the amount of ants, w is the width of the map and h is the height of the map
+A changelog data type has the following components:
+- Nest count (1 byte)
+- For each nest:
+	 + Food amount (8 bytes 4-4 fp*)
+	 + Ant count (1 byte)
+	 + For each ant:
+		 * X position (4 bytes 2-2 fp*)
+		 * Y position (4 bytes 2-2 fp*)
+		 * Type (1 byte)
+		 * Permanent ant ID (4 bytes)
+- Number of map events (4 bytes)
+- For each map event since last map or changelog call (i.e. anything that alters a tile on the map. usually ants picking stuff up)
+	 + X position (2 bytes)
+	 + Y position (2 bytes)
+	 + New tile type (1 byte)
+-Number of ant events (4 bytes)
+-For each ant event since last map or changelog call (i.e. anything that alters the health or food carried of an ant)
+	 + Permanent ant ID (4 bytes)
+	 + Health (8 bytes 4-4 fp*)
+	 + Food carried (8 bytes 4-4 fp*)
+
+Meaning a size of 9\*n+13\*a+5\*e+20\*E where n is the amount of nests, a is the amount of ants and e is the amount of events.
+*These are all 4 byte - 4 byte fixed point numbers, i.e. the first 4 bytes are above the point and the last 4 are below it and represent 2^-32nds or 2 byte - 2 byte fixed point numbers, same but half size on both sides.
 
 ### Placeholder
 I haven't made the part of the document whatever you clicked on should link to.

@@ -246,14 +246,14 @@ bool Connection::connectTo(std::string nip, int nport)
 
 bool Connection::connected()
 {
-    return sockfd >= 0;
+    return sockfd >= 0 && sockfd <= RLIMIT_NOFILE;
 }
 
 
 bool Connection::send(const char* message, size_t len)
 {
     errorState = OK;
-    if (sockfd < 0)
+    if (!connected())
     {
         std::cerr << "Cannot send because this connection is not open to anything!" << std::endl;
         errorState = EARLY;
@@ -319,7 +319,7 @@ bool Connection::send(const char* message, size_t len)
 
 int Connection::receive(char* buf, size_t size)
 {
-    if (sockfd < 0)
+    if (!connected())
     {
         std::cerr << "Cannot receive data because this connection is not connected!" << std::endl;
         errorState = EARLY;
@@ -378,7 +378,7 @@ int Connection::receive(char* buf, size_t size)
 std::string Connection::readall()
 {
     errorState = OK;
-    if (sockfd < 0)
+    if (!connected())
     {
         std::cerr << "Cannot receive data because this connection is not connected!" << std::endl;
         errorState = EARLY;
@@ -448,7 +448,10 @@ std::string Connection::readall()
                     errorState = UNKNOWN;
                     break;
             }
-            std::cerr << "Error while reading! Errno: " << errno << std::endl;
+            if (errno != ECONNRESET)
+            {
+                std::cerr << "Error while reading! Errno: " << errno << std::endl;
+            }
             if (sockfd >= 0)
             {
                 fcntl(sockfd, F_SETFL, fl);

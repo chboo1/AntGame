@@ -11,11 +11,11 @@ class DPos;
 class Pos
 {
     public:
-    unsigned int x;
-    unsigned int y;
+    unsigned short x;
+    unsigned short y;
     Pos(){}
     Pos(DPos);
-    Pos(unsigned int, unsigned int);
+    Pos(unsigned short, unsigned short);
     Pos& operator=(DPos);
     bool operator==(Pos);
     bool operator!=(Pos);
@@ -113,7 +113,7 @@ class Nest
     void giveCommand(NestCommand);
     void step(double);
     void cleanup();
-    void createAnt(unsigned char);
+    Ant* createAnt(unsigned char);
     void killAnt(int);
     ~Nest();
 };
@@ -125,7 +125,7 @@ class Ant
     class AntCommand
     {
         public:
-        enum class ID : unsigned char {DONE, FAIL, MOVE, TINTERACT, AINTERACT};
+        enum class ID : unsigned char {MOVE, TINTERACT, AINTERACT};
         ID cmd;
         enum class State : unsigned char {ONGOING, SUCCESS, FAIL};
         State state;

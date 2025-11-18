@@ -1,5 +1,5 @@
 LIBRARIES := $(wildcard source/lib/*.cpp)
-all: AntGameServer tests res
+all: AntGameServer tests res dummyClient
 	echo All
 
 libs: out/*.o
@@ -10,6 +10,14 @@ ifeq ($(OS),Windows_NT)
 	g++ out/*.o tests.cpp -lws2_32 -Isource/headers -o tests
 else
 	g++ out/*.o tests.cpp -Isource/headers -o tests
+endif
+
+
+dummyClient: dummyClient.cpp out/*.o
+ifeq ($(OS),Windows_NT)
+	g++ out/*.o dummyClient.cpp -lws2_32 -Isource/headers -o dummyClient
+else
+	g++ out/*.o dummyClient.cpp -Isource/headers -o dummyClient
 endif
 
 

@@ -1,8 +1,106 @@
 <html>
-    <head><title>AntGame - Game starting!</title></head>
+    <head>
+        <title>AntGame - Game starting!</title>
+        <style>
+
+h1{
+    text-align: center;
+    color: white;
+}
+body{
+    background-color: blue;
+}
+p, ul{
+    color: white;
+}
+
+        </style>
+        <script>
+setTimeout(refreshData, 1000);
+fetch("internalMapData").then((response) => {
+        if (!response.ok)
+        {
+            let ctx = document.getElementById("MapCanvas").getContext("2d");
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, __WIDTH, __HEIGHT);
+            ctx.fillStyle = "#000000";
+            ctx.font = "12px Arial";
+            ctx.fillText("Failed to get map data.", 0, 0);
+            return null;
+        }
+        return response.text();
+        }).then(fillinMap);
+const colors = [[255, 255, 255], [0, 0, 0], [255, 0, 0], [0, 255, 0]];
+const hexString = "0123456789abcdef";
+
+function refreshData()
+{
+    let playerList = document.getElementById("PlayerList");
+    fetch("waitingInternalData").then((response) => {
+        if (!response.ok)
+        {
+            playerList.textContent = "Server failed to tell how many players are here.";
+            setTimeout(refreshData, 1000);
+            return null;
+        }
+        return response.text();
+        }).then(fillinData);
+}
+
+function fillinData(text)
+{
+    if (text == "SIR_IT_IS_TIME_TO_REFRESH")
+    {
+        window.location.reload();
+    }
+    let playerList = document.getElementById("PlayerList");
+    playerList.innerHTML = text;
+    setTimeout(refreshData, 1000);
+}
+
+function fillinMap(response)
+{
+    let ctx = document.getElementById("MapCanvas").getContext("2d");
+    let data = response.toLowerCase();
+    ctx.fillRect(0, 0, 1000, 1000);
+    let imgdata = ctx.getImageData(0, 0, __WIDTH, __HEIGHT);
+    let isFirst = true;
+    let num = 0;
+    for (let i = 0; i < data.length; i++)
+    {
+        num *= 16;
+        if (hexString.indexOf(data[i]) >= 0)
+        {num += hexString.indexOf(data[i]);}
+        isFirst = !isFirst;
+        if (isFirst)
+        {
+            if (num > colors.length)
+            {
+                imgdata.data[(i-1)*2] = 255;
+                imgdata.data[(i-1)*2+1] = 255;
+                imgdata.data[(i-1)*2+2] = 255;
+            }
+            else
+            {
+                imgdata.data[(i-1)*2] = colors[num][0];
+                imgdata.data[(i-1)*2+1] = colors[num][1];
+                imgdata.data[(i-1)*2+2] = colors[num][2];
+            }
+            num = 0;
+        }
+    }
+    console.log("Done");
+    ctx.putImageData(imgdata, 0, 0);
+
+}
+        </script>
+    </head>
     <body>
         <h1>The game is starting soon...</h1>
-        <p>This page will automatically disappear and be replaced with the game once the game starts. For now, we must wait.</p>
-        <p>Also, this is a prototype page! It will need to be changed later to include more information about the game yet to be and to be less bland.</p>
+        <p>Players connected:</p>
+        <ul id="PlayerList">
+            PLAYERS
+        </ul>
+        <canvas id="MapCanvas" width="__WIDTH" height="__HEIGHT"></canvas>
     </body>
 </html>
