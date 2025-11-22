@@ -8,7 +8,7 @@ h1{
     color: white;
 }
 body{
-    background-color: blue;
+    background-color: black;
 }
 p, ul{
     color: white;
@@ -16,7 +16,7 @@ p, ul{
 
         </style>
         <script>
-setTimeout(refreshData, 1000);
+refreshData();
 fetch("internalMapData").then((response) => {
         if (!response.ok)
         {
@@ -99,7 +99,7 @@ function fillinMap(response)
         <h1>The game is starting soon...</h1>
         <p>Players connected:</p>
         <ul id="PlayerList">
-            PLAYERS
+            None!
         </ul>
         <canvas id="MapCanvas" width="__WIDTH" height="__HEIGHT"></canvas>
     </body>

@@ -65,6 +65,7 @@ There are a total of three management requests and two management responses that
 |0x08|NEWANT - The client wishes to make a new ant at their nest.|Ant type (1 byte)| \- | \- | \- | \- |
 |0x09|MAP - The client wishes to know the full map| \- | \- | \- | \- |A map data instance (see later)|
 |0x0a|CHANGELOG - The client wishes to know everything that has changed on the map since their last call in to either MAP or CHANGELOG| \- | \- | \- | \- |A changelog data instance (see later)|
+|0x0b|ME - The client wishes to know its nestID| \- | \- | \- | \- |Nest ID (1 byte)|
 
 ### Response IDs
 
@@ -103,7 +104,6 @@ A map data type has the following components:
 
 Meaning a size of 5+13*n+29*a+w*h where n is the amount of nests, a is the amount of ants, w is the width of the map and h is the height of the map
 A changelog data type has the following components:
-- Nest count (1 byte)
 - For each nest:
 	 + Food amount (8 bytes 4-4 fp*)
 	 + Ant count (1 byte)

@@ -49,13 +49,16 @@ class Round
     double secondsRunning;
     std::chrono::steady_clock::time_point phaseEndTime; // Not affected by time scale
     std::chrono::steady_clock::time_point timeAtStart;
+    std::chrono::steady_clock::time_point timeLastFrame;
     double deltaTime;
     bool logging = false;
+#ifdef ERROR
+#undef ERROR
+#endif
     enum Phase {INIT, WAIT, RUNNING, DONE, CLOSED, ERROR};
     Phase phase = INIT;
     Map*map;
     Round();
-    Round(std::string); // Uses a config file
     ~Round();
     bool open();
     bool open(int);
@@ -99,13 +102,14 @@ class Nest
         ID cmd;
         enum class State : unsigned char {ONGOING, SUCCESS, FAIL};
         State state;
-        unsigned long arg;
+        std::uint64_t arg;
     };
     Map*parent;
     Pos p;
     std::vector<Ant*> ants;
     std::deque<NestCommand> commands;
     double foodCount;
+    std::string name;
     Nest();
     Nest(Map*, Pos); // Takes a parent ptr and a position
     Nest(Map*, Pos, int); // Takes a parent ptr, a position and an ant count
@@ -122,14 +126,13 @@ class Nest
 class Ant
 {
     public:
-    class AntCommand
+    struct AntCommand
     {
-        public:
         enum class ID : unsigned char {MOVE, TINTERACT, AINTERACT};
         ID cmd;
         enum class State : unsigned char {ONGOING, SUCCESS, FAIL};
         State state;
-        unsigned long arg;
+        std::uint64_t arg;
     };
     Nest*parent;
     DPos p;

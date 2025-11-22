@@ -185,6 +185,11 @@ bool Round::open(std::string config, int port)
         std::cout << "Opening server to connections using config file located at '" << config << "' and on port " << RoundSettings::instance->port << "." << std::endl;
     }
     map = new Map;
+    if (!map)
+    {
+        std::cerr << "Could not allocate space for a map object!" << std::endl;
+        return false;
+    }
     map->init();
     if (map->nests.size() <= 0)
     {
@@ -200,7 +205,6 @@ bool Round::open(std::string config, int port)
     }
     phase = WAIT;
     secondsRunning = 0;
-    std::cout << "Done opening" << std::endl;
     return true;
 }
 
@@ -219,6 +223,7 @@ void Round::start()
         return;
     }
     timeAtStart = std::chrono::steady_clock::now();
+    timeLastFrame = std::chrono::steady_clock::now();
     secondsRunning = 0;
     phase = RUNNING;
     cm.start();
@@ -259,10 +264,10 @@ void Round::step()
         case RUNNING:{ // Oddly threatening.
             if (!map) {phase = ERROR; break;}
             std::chrono::steady_clock::time_point t = std::chrono::steady_clock::now();
-            double oldRunningTime = secondsRunning;
             RoundSettings::instance->timeScale = std::max(RoundSettings::instance->timeScale, 0.0);
-            secondsRunning = ((std::chrono::duration<double>)(t - timeAtStart)).count() * RoundSettings::instance->timeScale; 
-            double delta = secondsRunning - oldRunningTime;
+            secondsRunning = ((std::chrono::duration<double>)(t - timeAtStart)).count() * RoundSettings::instance->timeScale;
+            double delta = ((std::chrono::duration<double>)(t - timeLastFrame)).count() * RoundSettings::instance->timeScale;
+            timeLastFrame = t;
             deltaTime = delta;
             if (delta <= 0)
             {
@@ -345,14 +350,17 @@ void Round::step()
                     }
                 }
             }
-            if (c == 0)
+            if (c <= 1)
             {
-                phase = DONE;
+                end();
             }
             break;}
         case DONE:
-            break;
-        case CLOSED:
+            if (phaseEndTime < std::chrono::steady_clock::now())
+            {
+                reset();
+                phase = CLOSED;
+            }
             break;
         case ERROR:
             std::cerr << "Encountered an unrecoverable error in server function! Shutting down imminently." << std::endl;
@@ -368,8 +376,34 @@ void Round::step()
 void Round::end()
 {
     // TODO (Round::end) probably OK
+    if (logging)
+    {
+        std::cout << "The round is over!";
+        Nest*winner = nullptr;
+        unsigned char winneri = 0;
+        for (int i = 0; i < map->nests.size(); i++)
+        {
+            if (map->nests[i])
+            {
+                winner = map->nests[i];
+                winneri = i;
+            }
+        }
+        if (winner)
+        {
+            std::cout << " The winner is " << winner->name << " (Nest " << winneri << ")" << std::endl;
+        }
+        else
+        {
+            std::cout << " There is no winner (TIE)" << std::endl;
+        }
+        std::cout << "Game ran for " << secondsRunning << " seconds." << std::endl;
+    }
     cm.preclose();
     phase = DONE;
+    timeAtStart = std::chrono::steady_clock::now();
+    phaseEndTime = timeAtStart;
+    phaseEndTime += std::chrono::duration_cast<std::chrono::steady_clock::duration, double>((std::chrono::duration<double>)10.0);
 }
 void Round::reset() // Goes back to state after constructor but before open
 {
@@ -400,6 +434,7 @@ void Map::init() // Uses RoundSettings::instance to get values
     cleanup();
     if (RoundSettings::instance == nullptr || RoundSettings::instance->isPlayer || RoundSettings::instance->mapFile == "")
     {
+        std::cout << "This bad thing here" << std::endl;
         return;
     }
     if (Round::instance->logging)
@@ -423,8 +458,8 @@ std::string Map::encode() // Returns a string that can be passed to decode() to 
 {
     std::string out;
     unsigned short tantc = 0;
-    for (int i = 0; i < std::min(nests.size(), 256UL); i++) {if (nests[i]) {tantc += std::min(nests[i]->ants.size(), 256UL);}}
-    out.reserve(10UL + (unsigned long)std::min(nests.size(), 256UL) * 10UL + (unsigned long)tantc * 10UL + (unsigned long)size.x*(unsigned long)size.y);
+    for (int i = 0; i < std::min((std::uint64_t)nests.size(), (std::uint64_t)256); i++) {if (nests[i]) {tantc += std::min((std::uint64_t)nests[i]->ants.size(), (std::uint64_t)256);}}
+    out.reserve((std::uint64_t)10 + (std::uint64_t)std::min((std::uint64_t)nests.size(), (std::uint64_t)256) * (std::uint64_t)10 + (std::uint64_t)tantc * (std::uint64_t)10 + (std::uint64_t)size.x*(std::uint64_t)size.y);
     out += ANTGAME_ushorttohex(size.x) + ANTGAME_ushorttohex(size.y) + ANTGAME_uchartohex(nests.size()) + '\n';
     for (int i = 0; i < nests.size() && i < 256; i++)
     {
@@ -670,11 +705,6 @@ void Nest::step(double delta)
         if (a)
         {
             a->step(delta);
-            if (a->health <= 0)
-            {
-                killAnt(i);
-                i--;
-            }
         }
     }
 }
@@ -750,7 +780,7 @@ void Ant::init(Nest* nparent, DPos npos, unsigned char ntype) // Takes a parent 
 }
 void Ant::giveCommand(AntCommand com)
 {
-    commands.push_back(com); 
+    commands.push_back(com);
 }
 void Ant::step(double delta)
 {

@@ -97,6 +97,7 @@ int main(int argc, char*args[])
     }
     else
     {
+        std::cerr << "Failed to open server!" << std::endl;
         return 1;
     }
 }

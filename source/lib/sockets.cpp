@@ -971,7 +971,7 @@ bool Connection::send(const char* message, size_t len)
         errorState = EARLY;
         return false;
     }
-    if (size <= 0)
+    if (len <= 0)
     {
         return true;
     }

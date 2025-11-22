@@ -7,7 +7,7 @@
 #include "sockets.hpp"
 #ifndef NETWORK_HPP
 #define NETWORK_HPP
-
+ 
 
 class Viewer
 {
@@ -39,7 +39,7 @@ class ConnectionManager
         unsigned char nestID;
         unsigned int antID;
         ID cmd;
-        unsigned long arg;
+        std::uint64_t arg;
     };
     struct AntEvent
     {
@@ -60,9 +60,10 @@ class ConnectionManager
     static std::string makeAGNPushort(std::uint16_t);
     static double getAGNPshortdouble(unsigned int num);
     static unsigned int makeAGNPshortdouble(double num);
-    static unsigned long makeAGNPdouble(double num);
-    static double getAGNPdouble(unsigned long num);
+    static std::uint64_t makeAGNPdouble(double num);
+    static double getAGNPdouble(std::uint64_t num);
     static std::string makeAGNPdoublestr(double num);
+    static double getAGNPdoublestr(std::string);
 
     private:
     std::vector<Player*> players;
@@ -70,6 +71,7 @@ class ConnectionManager
     std::deque<Command> commands;
     std::deque<AntEvent> antEventQueue;
     std::deque<MapEvent> mapEventQueue;
+    unsigned int timeInCycle;
 
     void handleViewers();
     void handlePlayers();
@@ -79,10 +81,10 @@ class ConnectionManager
     bool isValid(Viewer*);
     bool isValid(Player*);
     bool playerGreeting(Viewer*);
-    enum class RequestID : unsigned char {JOIN, NONE=0, PING, BYE, NAME, WALK, SETTINGS, TINTERACT, AINTERACT, NEWANT, MAP, CHANGELOG};
-    enum class ResponseID : unsigned char {OK, DENY, PING, BYE, START, OKDATA, FAILURE, CMDSUCCESS, CMDFAIL};
     bool interpretRequests(Player*);
     public:
+    enum class RequestID : unsigned char {JOIN, NONE=0, PING, BYE, NAME, WALK, SETTINGS, TINTERACT, AINTERACT, NEWANT, MAP, CHANGELOG, ME};
+    enum class ResponseID : unsigned char {OK, DENY, PING, BYE, START, OKDATA, FAILURE, CMDSUCCESS, CMDFAIL};
     ConnectionManager();
     void start();
     void step();
