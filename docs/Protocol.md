@@ -117,7 +117,7 @@ A changelog data type has the following components:
 	 + X position (2 bytes)
 	 + Y position (2 bytes)
 	 + New tile type (1 byte)
--Number of ant events (4 bytes)
+- Number of ant events (4 bytes)
 -For each ant event since last map or changelog call (i.e. anything that alters the health or food carried of an ant)
 	 + Permanent ant ID (4 bytes)
 	 + Health (8 bytes 4-4 fp*)

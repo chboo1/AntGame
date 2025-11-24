@@ -399,7 +399,7 @@ void ConnectionManager::handlePlayers()
                 {
                     feedbackString.append("\x00\x07", 2);
                 }
-                if (ncmd.state == Nest::NestCommand::State::SUCCESS)
+                if (ncmd.state == Nest::NestCommand::State::FAIL)
                 {
                     feedbackString.append("\x00\x08", 2);
                 }
@@ -416,10 +416,19 @@ void ConnectionManager::handlePlayers()
                         break;
                 }
             }
-            for (std::deque<Nest::NestCommand>::iterator it = Round::instance->map->nests[p->nestID]->commands.begin(); it != Round::instance->map->nests[p->nestID]->commands.end();)
+            bool cleared = false;
+            while (!cleared)
             {
-                it++;
-                if ((*it).state != Nest::NestCommand::State::ONGOING) {Round::instance->map->nests[p->nestID]->commands.erase(it-1);}
+                cleared = true;
+                for (std::deque<Nest::NestCommand>::iterator it = Round::instance->map->nests[p->nestID]->commands.begin(); it != Round::instance->map->nests[p->nestID]->commands.end();it++)
+                {
+                    if ((*it).state != Nest::NestCommand::State::ONGOING)
+                    {
+                        Round::instance->map->nests[p->nestID]->commands.erase(it);
+                        cleared = false;
+                        break;
+                    }
+                }
             }
             for (Ant* a : Round::instance->map->nests[p->nestID]->ants)
             {
@@ -433,7 +442,7 @@ void ConnectionManager::handlePlayers()
                     {
                         feedbackString.append("\x00\x07", 2);
                     }
-                    if (acmd.state == Ant::AntCommand::State::SUCCESS)
+                    if (acmd.state == Ant::AntCommand::State::FAIL)
                     {
                         feedbackString.append("\x00\x08", 2);
                     }
@@ -464,10 +473,19 @@ void ConnectionManager::handlePlayers()
                             break;
                     }
                 }
-                for (std::deque<Ant::AntCommand>::iterator it = a->commands.begin(); it != a->commands.end();)
+                cleared = false;
+                while (!cleared)
                 {
-                    it++;
-                    if ((*it).state != Ant::AntCommand::State::ONGOING) {a->commands.erase(it-1);}
+                    cleared = true;
+                    for (std::deque<Ant::AntCommand>::iterator it = a->commands.begin(); it != a->commands.end();it++)
+                    {
+                        if ((*it).state != Ant::AntCommand::State::ONGOING)
+                        {
+                            a->commands.erase(it);
+                            cleared = false;
+                            break;
+                        }
+                    }
                 }
             }
             if (!feedbackString.empty())
@@ -689,11 +707,15 @@ bool ConnectionManager::httpResponse(Viewer* v)
             data.erase(data.begin(), data.begin() + data.find("\r\n\r\n") + 4);
             v->unusedData = data;
         }
-        else if (data.compare(data.find(' ') + 1, 17, "/changelogMapData"))
+        else if (data.compare(data.find(' ') + 1, 17, "/changelogMapData") == 0)
         {
             std::string changelogData = "";
             unsigned int clientAt = 0;
             changelogData = data.substr(data.find(' ') + 1, data.find(' ', data.find(' ') + 1) - data.find(' '));
+            std::cout << "Changelog data full " << changelogData << std::endl;
+            changelogData = changelogData.substr(17, std::string::npos);
+            std::cout << "Changelog data " << changelogData << std::endl;
+            std::cout << mapEventQueue.size() << std::endl;
             try
             {
                 clientAt = std::stoul(changelogData, nullptr, 10);
@@ -746,6 +768,7 @@ bool ConnectionManager::httpResponse(Viewer* v)
                 }
             }
             changelogData.append(makeAGNPuint(mapEventQueue.size()));
+            _sendResponse(v, "HTTP/1.1 200 OK\r\nConnection: keep-alive\r\n", changelogData);
             data.erase(data.begin(), data.begin() + data.find("\r\n\r\n") + 4);
             v->unusedData = data;
         }
@@ -953,14 +976,14 @@ bool ConnectionManager::playerGreeting(Viewer* v)
 
 unsigned int ConnectionManager::getAGNPuint(std::string data)
 {
-    return ((unsigned int)data[0]<<24) + ((unsigned int)data[1]<<16) + ((unsigned int)data[2]<<8) + (unsigned int)data[3];
+    return ((unsigned int)(unsigned char)data[0]<<24) + ((unsigned int)(unsigned char)data[1]<<16) + ((unsigned int)(unsigned char)data[2]<<8) + (unsigned int)(unsigned char)data[3];
 }
 
 
 std::string ConnectionManager::makeAGNPuint(std::uint32_t num)
 {
     std::string str;
-    str.push_back((char)(num>>24 & 0xff));
+    str.push_back((char)(num>>24));
     str.push_back((char)(num>>16 & 0xff));
     str.push_back((char)(num>>8 & 0xff));
     str.push_back((char)(num & 0xff));
@@ -970,7 +993,7 @@ std::string ConnectionManager::makeAGNPuint(std::uint32_t num)
 
 unsigned short ConnectionManager::getAGNPushort(std::string data)
 {
-    return ((unsigned int)data[0]<<8) + (unsigned int)data[1];
+    return ((unsigned int)(unsigned char)data[0]<<8) + (unsigned int)(unsigned char)data[1];
 }
 
 
@@ -1113,6 +1136,7 @@ bool ConnectionManager::interpretRequests(Player* p)
             }
             else if (id == (unsigned char)RequestID::JOIN)
             {
+                std::cout << "Fuck me I guess" << std::endl;
                 if (responses.length() > UINT32_MAX-10)
                 {
                     std::string msg = "";
@@ -1221,12 +1245,12 @@ bool ConnectionManager::interpretRequests(Player* p)
                     }
                 }
                 std::string head = "";
-                head.append(makeAGNPuint(10+msg.length()+Round::instance->map->size.x*Round::instance->map->size.y));
+                head.append(makeAGNPuint(10+msg.length()+(unsigned int)Round::instance->map->size.x*(unsigned int)Round::instance->map->size.y));
                 head.append(makeAGNPuint(1));
                 head.append("\x09\x05", 2);
                 p->conn->send(head.c_str(), head.length());
                 p->conn->send(msg.c_str(), msg.length());
-                p->conn->send((char*)Round::instance->map->map, Round::instance->map->size.x * Round::instance->map->size.y);
+                p->conn->send((char*)Round::instance->map->map, (unsigned int)Round::instance->map->size.x * (unsigned int)Round::instance->map->size.y);
                 p->antEventPos = antEventQueue.end() - 1;
                 p->mapEventPos = mapEventQueue.end() - 1;
             }
@@ -1346,7 +1370,7 @@ bool ConnectionManager::interpretRequests(Player* p)
                                 cmd.cmd = Command::ID::TINTERACT;
                                 cmd.arg += getAGNPuint(data);
                                 data.erase(0, 4);
-                                if (cmd.antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[cmd.antID] || Round::instance->map->antPermanents[cmd.antID]->commands.size() >= 0xff)
+                                if (cmd.antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[cmd.antID] || Round::instance->map->antPermanents[cmd.antID]->commands.size() >= 0xff || Round::instance->map->antPermanents[cmd.antID]->parent != Round::instance->map->nests[p->nestID])
                                 {
                                     responses.append("\x06\x01", 2);
                                 }
@@ -1383,7 +1407,7 @@ bool ConnectionManager::interpretRequests(Player* p)
                                 data.erase(0, 4);
                                 cmd.arg += getAGNPuint(data);
                                 data.erase(0, 4);
-                                if (cmd.antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[cmd.antID] || Round::instance->map->antPermanents[cmd.antID]->commands.size() >= 0xff)
+                                if (cmd.antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[cmd.antID] || Round::instance->map->antPermanents[cmd.antID]->commands.size() >= 0xff || Round::instance->map->antPermanents[cmd.antID]->parent != Round::instance->map->nests[p->nestID])
                                 {
                                     responses.append("\x04\x01", 2);
                                 }
@@ -1417,7 +1441,7 @@ bool ConnectionManager::interpretRequests(Player* p)
                                 cmd.cmd = Command::ID::AINTERACT;
                                 cmd.arg = getAGNPuint(data);
                                 data.erase(0, 4);
-                                if (cmd.antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[cmd.antID] || Round::instance->map->antPermanents[cmd.antID]->commands.size() >= 0xff)
+                                if (cmd.antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[cmd.antID] || Round::instance->map->antPermanents[cmd.antID]->commands.size() >= 0xff || Round::instance->map->antPermanents[cmd.antID]->parent != Round::instance->map->nests[p->nestID])
                                 {
                                     responses.append("\x07\x01", 2);
                                 }
@@ -1471,8 +1495,7 @@ bool ConnectionManager::interpretRequests(Player* p)
                                 responses = "";
                                 std::uint64_t antc = 0;
                                 for (Nest* n : Round::instance->map->nests) {if (n) {antc += n->ants.size();}}
-                                msg.reserve(1UL + (std::uint64_t)Round::instance->map->nests.size() * 9UL + antc * 13UL);
-                                msg.push_back((char)(unsigned char)Round::instance->map->nests.size());
+                                msg.reserve((std::uint64_t)Round::instance->map->nests.size() * 9UL + antc * 13UL);
                                 for (Nest* n : Round::instance->map->nests)
                                 {
                                     if (n)
@@ -1481,17 +1504,10 @@ bool ConnectionManager::interpretRequests(Player* p)
                                         msg.push_back((char)(unsigned char)n->ants.size());
                                         for (Ant * a : n->ants)
                                         {
-                                            if (a)
-                                            {
-                                                msg.append(makeAGNPuint(makeAGNPshortdouble(a->p.x)));
-                                                msg.append(makeAGNPuint(makeAGNPshortdouble(a->p.y)));
-                                                msg.push_back((char)a->type);
-                                                msg.append(makeAGNPuint(a->pid));
-                                            }
-                                            else
-                                            {
-                                                msg.append("\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff", 13);
-                                            }
+                                            msg.append(makeAGNPuint(makeAGNPshortdouble(a->p.x)));
+                                            msg.append(makeAGNPuint(makeAGNPshortdouble(a->p.y)));
+                                            msg.push_back((char)a->type);
+                                            msg.append(makeAGNPuint(a->pid));
                                         }
                                     }
                                     else

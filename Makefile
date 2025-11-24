@@ -31,7 +31,7 @@ endif
 
 out/*.o: source/lib/*.cpp out
 ifeq ($(OS),Windows_NT)
-	cd source/lib & g++ -c *.cpp -I../headers
+	cd source/lib && g++ -c *.cpp -I../headers
 	move /y source\\lib\\*.o out\\
 else
 	cd source/lib; g++ -c *.cpp -I../headers

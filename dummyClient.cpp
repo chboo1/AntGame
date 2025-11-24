@@ -126,23 +126,43 @@ int main(int argc, char*args[])
         return 1;
     }
     Map map;
-    conn.send("\0\0\0\x09\0\0\0\x01\x09", 9);
+    conn.send("\0\0\0\x0a\0\0\0\x02\x0b\x09", 10);
     bool dead = false;
+    unsigned char selfNestID = 0xff;
+    bool hasMap = false;
     std::deque<ConnectionManager::RequestID> reqs;
     std::deque<ConnectionManager::RequestID> cmdIDs;
     std::deque<unsigned int> cmdpids;
     std::deque<std::uint64_t> cmdargs;
+    std::deque<Pos> targetedFood;
     reqs.push_back(ConnectionManager::RequestID::MAP);
+    reqs.push_back(ConnectionManager::RequestID::ME);
     for (recvData.clear(); !dead; recvData = conn.readall())
     {
+        if (!conn.connected())
+        {
+            std::cerr << "Connection was closed unexpectedly!" << std::endl;
+            conn.finish();
+            map.cleanup();
+            return 1;
+        }
+        bool updateCommands = false;
+        bool sendChangelogReq = false;
         while (recvData.length() >= 10)
         {
             unsigned int responsesLen = ConnectionManager::getAGNPuint(recvData);
             recvData.erase(0, 4);
             unsigned int rq = ConnectionManager::getAGNPuint(recvData);
             recvData.erase(0, 4);
-            while (responsesLen >= 2)
+            responsesLen -= 8;
+            while (recvData.length() < responsesLen)
             {
+                recvData.append(conn.readall());
+            }
+            while (responsesLen >= 2 && recvData.length() >= 2)
+            {
+                std::cout << "Decyphering... length of data:" << recvData.length() << ", amount of data (according to server):" << responsesLen << std::endl;
+                std::cout << (unsigned int)(unsigned char)recvData[0] << ", " << (unsigned int)(unsigned char)recvData[1] << std::endl;
                 bool corresponds = false;
                 if (recvData[0] != (char)ConnectionManager::RequestID::NONE)
                 {
@@ -157,7 +177,7 @@ int main(int argc, char*args[])
                     }
                     if (!corresponds)
                     {
-                        std::cerr << "Server sent a response to a non-existent message!" << std::endl;
+                        std::cerr << "Server sent a response to a non-existent message: " << (unsigned int)(unsigned char)recvData[0] << std::endl;
                         conn.finish();
                         map.cleanup();
                         return 2;
@@ -165,10 +185,10 @@ int main(int argc, char*args[])
                 }
                 switch (recvData[0])
                 {
-                    case (char)ConnectionManager::RequestID::MAP:
+                    case (char)ConnectionManager::RequestID::MAP:{
                         if (recvData[1] != (char)ConnectionManager::ResponseID::OKDATA)
                         {
-                            std::cerr << "Server sent wrong response code to map request." << std::endl;
+                            std::cerr << "Server sent wrong response code to map request: " << (unsigned int)(unsigned char)recvData[1] << std::endl;
                             conn.finish();
                             map.cleanup();
                             return 2;
@@ -254,9 +274,18 @@ int main(int argc, char*args[])
                         recvData.copy((char*)map.map, index, (unsigned int)map.size.x * (unsigned int)map.size.y);
                         recvData.erase(0, index + (unsigned int)map.size.x * (unsigned int)map.size.y);
                         responsesLen -= index + (unsigned int)map.size.x * (unsigned int)map.size.y;
-                        break;
-                    case (char)ConnectionManager::RequestID::CHANGELOG:
-                        unsigned int index = 0;
+                        sendChangelogReq = true;
+                        hasMap = true;
+                        break;}
+                    case (char)ConnectionManager::RequestID::CHANGELOG:{
+                        if (recvData[1] != (char)ConnectionManager::ResponseID::OKDATA)
+                        {
+                            std::cerr << "Server sent wrong response code to changelog request: " << (unsigned int)(unsigned char)recvData[1] << std::endl;
+                            conn.finish();
+                            map.cleanup();
+                            return 2;
+                        }
+                        unsigned int index = 2;
                         std::vector<bool> antExists;
                         antExists.resize(map.antPermanents.size(), false);
                         Ant*a = new Ant;
@@ -281,7 +310,7 @@ int main(int argc, char*args[])
                                 }
                                 n->ants.clear();
                                 n->foodCount = ConnectionManager::getAGNPdoublestr(recvData.substr(index, 8));
-                                unsigned char antc = (char)recvData[index+8];
+                                unsigned char antc = (unsigned char)recvData[index+8];
                                 n->ants.reserve(antc);
                                 index += 9;
                                 if (recvData.length() < index + antc * 13 || responsesLen < index + antc * 13)
@@ -400,12 +429,319 @@ int main(int argc, char*args[])
                         }
                         recvData.erase(0, index);
                         responsesLen -= index;
+                        sendChangelogReq = true;
+                        break;}
+                    case (char)ConnectionManager::RequestID::ME:
+                        if (recvData[1] != (char)ConnectionManager::ResponseID::OKDATA)
+                        {
+                            std::cerr << "Server sent wrong response code to me request: " << (unsigned int)(unsigned char)recvData[1] << std::endl;
+                            conn.finish();
+                            map.cleanup();
+                            return 2;
+                        }
+                        selfNestID = recvData[2];
+                        responsesLen -= 3;
+                        recvData.erase(0, 3);
+                        updateCommands = true;
                         break;
+                    case (char)ConnectionManager::RequestID::WALK:
+                    case (char)ConnectionManager::RequestID::TINTERACT:
+                        recvData.erase(0, 2);
+                        responsesLen -= 2;
+                        break;
+                    case (char)ConnectionManager::RequestID::NONE:
+                        switch (recvData[1])
+                        {
+                            case (char)ConnectionManager::ResponseID::PING:
+                                conn.send("\0\0\0\x09\0\0\0\x01\x01", 9);
+                                recvData.erase(0, 2);
+                                responsesLen -= 2;
+                                break;
+                            case (char)ConnectionManager::ResponseID::BYE:
+                                conn.send("\0\0\0\x09\0\0\0\x01\x02", 9);
+                                recvData.erase(0, 2);
+                                responsesLen -= 2;
+                                std::cout << "Kicked out by server." << std::endl;
+                                conn.finish();
+                                map.cleanup();
+                                return 0;
+                            case (char)ConnectionManager::ResponseID::CMDFAIL:
+                            case (char)ConnectionManager::ResponseID::CMDSUCCESS:{
+                                updateCommands = true;
+                                unsigned char serverCmdId = (unsigned char)recvData[2];
+                                unsigned int antPid = ConnectionManager::getAGNPuint(recvData.substr(3, 4));
+                                std::uint64_t serverCmdArg = 0;
+                                switch (serverCmdId)
+                                {
+                                    case (char)ConnectionManager::RequestID::WALK:
+                                        serverCmdArg = ConnectionManager::getAGNPuint(recvData.substr(7, 4));
+                                        serverCmdArg <<= 32;
+                                        serverCmdArg += ConnectionManager::getAGNPuint(recvData.substr(11, 4));
+                                        recvData.erase(0, 15);
+                                        responsesLen -= 15;
+                                        break;
+                                    case (char)ConnectionManager::RequestID::TINTERACT:
+                                        serverCmdArg = ConnectionManager::getAGNPuint(recvData.substr(7, 4));
+                                        recvData.erase(0, 11);
+                                        responsesLen -= 11;
+                                        break;
+                                    default:
+                                        std::cerr << "Server sent a CMDFAIL/SUCCESS with impossible previous data (ID)" << (unsigned int)serverCmdId << std::endl;
+                                        conn.finish();
+                                        map.cleanup();
+                                        return 2;
+                                }
+                                auto IDit = cmdIDs.begin();
+                                auto PIDit = cmdpids.begin();
+                                auto ARGit = cmdargs.begin();
+                                bool found = false;
+                                std::cout << (unsigned int)serverCmdId << ", " << antPid << ", " << serverCmdArg << std::endl;
+                                for (;IDit != cmdIDs.end();)
+                                {
+                                    std::cout << "A: " << (unsigned int)(*IDit) << ", " << (*PIDit) << ", " << (*ARGit) << std::endl;
+                                    if ((*IDit) == (ConnectionManager::RequestID)serverCmdId && (*PIDit) == antPid && (*ARGit) == serverCmdArg)
+                                    {
+                                        cmdIDs.erase(IDit);
+                                        cmdpids.erase(PIDit);
+                                        cmdargs.erase(ARGit);
+                                        found = true;
+                                        break;
+                                    }
+                                    IDit++;
+                                    PIDit++;
+                                    ARGit++;
+                                }
+                                if (!found)
+                                {
+                                    std::cerr << "Server sent a CMDFAIL/SUCCESS with impossible previous data" << std::endl;
+                                    conn.finish();
+                                    map.cleanup();
+                                    return 2;
+                                }
+                                break;}
+                            default:
+                                std::cerr << "Server sent an invalid unsolicited message: " << (unsigned int)(unsigned char)recvData[1] << std::endl;
+                                conn.finish();
+                                map.cleanup();
+                                return 2;
+                        }
+                        break;
+                    default:
+                        std::cerr << "Server responded to a message correctly, but I have no logic to process it. Idfk why. Id: " << (unsigned int)(unsigned char)recvData[0] << std::endl;
+                        conn.finish();
+                        map.cleanup();
+                        return 2;
+                }
+            }
+        }
+        updateCommands = updateCommands || sendChangelogReq;
+        if (sendChangelogReq)
+        {
+            conn.send("\0\0\0\x09\0\0\0\x01\x0a", 9);
+            reqs.push_back(ConnectionManager::RequestID::CHANGELOG);
+        }
+        if (updateCommands && selfNestID != 0xff && hasMap)
+        {
+            for (Ant* a : map.nests[selfNestID]->ants)
+            {
+                bool moveCommand = false;
+                bool tinterCommand = false;
+                auto cmdIDit = cmdIDs.begin();
+                for (auto antIDit = cmdpids.begin(); antIDit != cmdpids.end(); antIDit++)
+                {
+                    if ((*antIDit) != a->pid)
+                    {
+                        cmdIDit++;
+                        continue;
+                    }
+                    if ((*cmdIDit) == ConnectionManager::RequestID::WALK)
+                    {
+                        moveCommand = true;
+                    }
+                    else if ((*cmdIDit) == ConnectionManager::RequestID::TINTERACT)
+                    {
+                        tinterCommand = true;
+                    }
+                    cmdIDit++;
+                }
+                Pos target;
+                target.x = 0xffff;
+                target.y = 0xffff;
+                std::cout << a->foodCarry << std::endl;
+                if (a->foodCarry > 0)
+                {
+                    target = a->parent->p;
+                }
+                else
+                {
+                    Pos center = a->p;
+                    for (unsigned int size = 1; size < 50; size++)
+                    {
+                        for (int ox = -size + 1; ox < size; ox++)
+                        {
+                            if (ox + (int)center.x < 0)
+                            {
+                                continue;
+                            }
+                            if (ox + (int)center.x >= map.size.x)
+                            {
+                                break;
+                            }
+                            Pos check = center;
+                            check.x += ox;
+                            if (check.y >= size)
+                            {
+                                check.y -= size;
+                                if (map[check] == Map::Tile::FOOD)
+                                {
+                                    bool ok = true;
+                                    for (Pos p : targetedFood)
+                                    {
+                                        if (p == check)
+                                        {
+                                            ok = false;
+                                            break;
+                                        }
+                                    }
+                                    if (ok)
+                                    {
+                                        target = check;
+                                        break;
+                                    }
+                                }
+                                check.y += size;
+                            }
+                            if (map.size.y - check.y > size)
+                            {
+                                check.y += size;
+                                if (map[check] == Map::Tile::FOOD)
+                                {
+                                    bool ok = true;
+                                    for (Pos p : targetedFood)
+                                    {
+                                        if (p == check)
+                                        {
+                                            ok = false;
+                                            break;
+                                        }
+                                    }
+                                    if (ok)
+                                    {
+                                        target = check;
+                                        break;
+                                    }
+                                }
+                                check.y -= size;
+                            }
+                        }
+                        if (target.x != 0xffff && target.y != 0xffff)
+                        {
+                            break;
+                        }
+                        for (int oy = -size; oy <= size; oy++)
+                        {
+                            if (oy + (int)center.y < 0)
+                            {
+                                continue;
+                            }
+                            if (oy + (int)center.y >= map.size.y)
+                            {
+                                break;
+                            }
+                            Pos check = center;
+                            check.x += oy;
+                            if (check.x >= size)
+                            {
+                                check.x -= size;
+                                if (map[check] == Map::Tile::FOOD)
+                                {
+                                    bool ok = true;
+                                    for (Pos p : targetedFood)
+                                    {
+                                        if (p == check)
+                                        {
+                                            ok = false;
+                                            break;
+                                        }
+                                    }
+                                    if (ok)
+                                    {
+                                        target = check;
+                                        break;
+                                    }
+                                }
+                                check.x += size;
+                            }
+                            if (map.size.x - check.x > size)
+                            {
+                                check.x += size;
+                                if (map[check] == Map::Tile::FOOD)
+                                {
+                                    bool ok = true;
+                                    for (Pos p : targetedFood)
+                                    {
+                                        if (p == check)
+                                        {
+                                            ok = false;
+                                            break;
+                                        }
+                                    }
+                                    if (ok)
+                                    {
+                                        target = check;
+                                        break;
+                                    }
+                                }
+                                check.x -= size;
+                            }
+                        }
+                        if (target.x != 0xffff && target.y != 0xffff)
+                        {
+                            break;
+                        }
+                    }
+                }
+                if (target.x != 0xffff && target.y != 0xffff)
+                {
+                    std::cout << "Targeting: " << target.x << ", " << target.y << std::endl;
+                    if (!moveCommand)
+                    {
+                        std::string msg;
+                        msg.append("\0\0\0\x15\0\0\0\x01\x04", 9);
+                        msg.append(ConnectionManager::makeAGNPuint(a->pid));
+                        msg.append(ConnectionManager::makeAGNPushort(target.x));
+                        msg.append("\x7f\0", 2);
+                        msg.append(ConnectionManager::makeAGNPushort(target.y));
+                        msg.append("\x7f\0", 2);
+                        cmdIDs.push_back(ConnectionManager::RequestID::WALK);
+                        cmdpids.push_back(a->pid);
+                        std::uint64_t arg = (unsigned int)target.x<<48 + (unsigned int)target.y + 0x7f0000007f00;
+                        std::cout << "move: " << arg << std::endl;
+                        cmdargs.push_back(arg);
+                        conn.send(msg.c_str(), msg.length());
+                        reqs.push_back(ConnectionManager::RequestID::WALK);
+                    }
+                    if (!tinterCommand)
+                    {
+                        std::string msg;
+                        msg.append("\0\0\0\x11\0\0\0\x01\x06", 9);
+                        msg.append(ConnectionManager::makeAGNPuint(a->pid));
+                        msg.append(ConnectionManager::makeAGNPushort(target.x));
+                        msg.append(ConnectionManager::makeAGNPushort(target.y));
+                        cmdIDs.push_back(ConnectionManager::RequestID::TINTERACT);
+                        cmdpids.push_back(a->pid);
+                        std::uint64_t arg = (unsigned int)target.x<<16 + (unsigned int)target.y;
+                        std::cout << "tinter: " << arg << std::endl;
+                        cmdargs.push_back(arg);
+                        conn.send(msg.c_str(), msg.length());
+                        reqs.push_back(ConnectionManager::RequestID::TINTERACT);
+                    }
                 }
             }
         }
     }
 
     conn.finish();
+    map.cleanup();
     return 0;
 }

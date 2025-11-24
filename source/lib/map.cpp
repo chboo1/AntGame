@@ -426,6 +426,7 @@ void Round::reset() // Goes back to state after constructor but before open
 
 Map::Map()
 {
+    map = nullptr;
 }
 
 

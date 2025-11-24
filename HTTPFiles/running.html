@@ -32,8 +32,8 @@ fetch("internalMapData").then((response) => {
         }).then(fillinMap);
 const colors = [[255, 255, 255], [0, 0, 0], [255, 0, 0], [0, 255, 0]];
 const antColor = [0, 0, 255];
-const hexString = "0123456789abcdef";;
-let baseImgData = document.getElementById("MapCanvas").getContext("2d").getImageData(0, 0, __WIDTH, __HEIGHT);
+const hexString = "0123456789abcdef";
+let baseImgData;
 let changelogPoint = 0;
 
 function refreshData()
@@ -109,15 +109,15 @@ function fillinMap(response)
         {
             if (num > colors.length)
             {
-                imgdata.data[(i-1)*2] = 255;
-                imgdata.data[(i-1)*2+1] = 255;
-                imgdata.data[(i-1)*2+2] = 255;
+                imgdata.data[(i-9)*2] = 255;
+                imgdata.data[(i-9)*2+1] = 255;
+                imgdata.data[(i-9)*2+2] = 255;
             }
             else
             {
-                imgdata.data[(i-1)*2] = colors[num][0];
-                imgdata.data[(i-1)*2+1] = colors[num][1];
-                imgdata.data[(i-1)*2+2] = colors[num][2];
+                imgdata.data[(i-9)*2] = colors[num][0];
+                imgdata.data[(i-9)*2+1] = colors[num][1];
+                imgdata.data[(i-9)*2+2] = colors[num][2];
             }
             num = 0;
         }
@@ -126,6 +126,7 @@ function fillinMap(response)
     console.log("Done");
     ctx.putImageData(imgdata, 0, 0);
     refreshMap();
+    baseImgData = document.getElementById("MapCanvas").getContext("2d").getImageData(0, 0, __WIDTH, __HEIGHT);
 }
 
 function updateMap(response)
@@ -135,6 +136,7 @@ function updateMap(response)
         return;
     }
     let mec = get32i(response, 0);
+    console.log("mec" + mec.toString());
     let index = 4;
     for (;index < 4 + mec * 5; index += 5)
     {
@@ -146,6 +148,7 @@ function updateMap(response)
     }
     let copyImgData = baseImgData;
     let antc = get16i(response, index);
+    console.log("antc" + antc.toString());
     for (index = 6 + mec * 5; index < 6 + mec * 5 + antc * 4; index += 4)
     {
         let x = get16i(response, index);
@@ -154,6 +157,8 @@ function updateMap(response)
         copyImgData.data[(x + __WIDTH * y) * 4 + 1] = antColor[1];
         copyImgData.data[(x + __WIDTH * y) * 4 + 2] = antColor[2];
     }
+    changelogPoint = get32i(response, index);
+    console.log("clp" + changelogPoint.toString());
     setTimeout(refreshMap, 40);
 }
 
