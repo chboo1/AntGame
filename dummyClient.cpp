@@ -5,6 +5,7 @@
 #include <string>
 #include <thread>
 #include <chrono>
+#define DOUT std::cout
 
 
 int main(int argc, char*args[])
@@ -137,6 +138,7 @@ int main(int argc, char*args[])
     std::deque<Pos> targetedFood;
     reqs.push_back(ConnectionManager::RequestID::MAP);
     reqs.push_back(ConnectionManager::RequestID::ME);
+    bool wayBack = false;
     for (recvData.clear(); !dead; recvData = conn.readall())
     {
         if (!conn.connected())
@@ -161,8 +163,6 @@ int main(int argc, char*args[])
             }
             while (responsesLen >= 2 && recvData.length() >= 2)
             {
-                std::cout << "Decyphering... length of data:" << recvData.length() << ", amount of data (according to server):" << responsesLen << std::endl;
-                std::cout << (unsigned int)(unsigned char)recvData[0] << ", " << (unsigned int)(unsigned char)recvData[1] << std::endl;
                 bool corresponds = false;
                 if (recvData[0] != (char)ConnectionManager::RequestID::NONE)
                 {
@@ -209,7 +209,7 @@ int main(int argc, char*args[])
                                 conn.finish();
                                 return 2;
                             }
-                            else if (recvData.compare(index, 8, "\xff\xff\xff\xff\xff\xff\xff\xff") == 0 || recvData.compare(index+8, 2, "\xff\xff") == 0 || recvData.compare(index+10, 2, "\xff\xff") == 0 || recvData[index+11] == '\xff')
+                            else if (recvData.compare(index, 8, "\xff\xff\xff\xff\xff\xff\xff\xff") == 0 || recvData.compare(index+8, 2, "\xff\xff") == 0 || recvData.compare(index+10, 2, "\xff\xff") == 0 || recvData[index+12] == '\xff')
                             {
                                 map.nests.push_back(nullptr);
                                 index += 13;
@@ -302,10 +302,13 @@ int main(int argc, char*args[])
                                     delete a;
                                     return 2;
                                 }
-                                else if (recvData.compare(0, 8, "\xff\xff\xff\xff\xff\xff\xff\xff") == 0 || recvData[8] == '\xff')
+                                else if (recvData.compare(index, 8, "\xff\xff\xff\xff\xff\xff\xff\xff") == 0 || recvData[index+8] == '\xff')
                                 {
+                                    n->salute();
                                     delete n;
                                     map.nests[nid] = nullptr;
+                                    nid++;
+                                    index += 9;
                                     continue;
                                 }
                                 n->ants.clear();
@@ -332,6 +335,7 @@ int main(int argc, char*args[])
                                     {
                                         map.antPermanents.resize(a->pid + 1, nullptr);
                                         antExists.resize(a->pid + 1, false);
+                                        a->_init(n, a->p, a->type);
                                         map.antPermanents[a->pid] = a;
                                         antExists[a->pid] = true;
                                         n->ants.push_back(a);
@@ -343,6 +347,7 @@ int main(int argc, char*args[])
                                         if (!map.antPermanents[a->pid])
                                         {
                                             map.antPermanents[a->pid] = a;
+                                            a->_init(n, a->p, a->type);
                                             a = new Ant;
                                         }
                                         else
@@ -363,11 +368,12 @@ int main(int argc, char*args[])
                             nid++;
                         }
                         delete a;
+                        a = nullptr;
                         for (unsigned int i = 0; i < map.antPermanents.size(); i++)
                         {
                             if (!antExists[i])
                             {
-                                if (map.antPermanents[i])
+                                if (map.antPermanents[i] != nullptr)
                                 {
                                     delete map.antPermanents[i];
                                     map.antPermanents[i] = nullptr;
@@ -379,7 +385,6 @@ int main(int argc, char*args[])
                             std::cerr << "Ran out of data while trying to get map event amount in CHANGELOG object." << std::endl;
                             conn.finish();
                             map.cleanup();
-                            delete a;
                             return 2;
                         }
                         unsigned int mec = ConnectionManager::getAGNPuint(recvData.substr(index, 4));
@@ -425,6 +430,7 @@ int main(int argc, char*args[])
                                 map.antPermanents[pid]->foodCarry = food;
                                 map.antPermanents[pid]->health = health;
                             }
+                            DOUT << "Ant " << pid << " has " << health << " health and " << food << " food." << std::endl;
                             index += 20;
                         }
                         recvData.erase(0, index);
@@ -443,6 +449,7 @@ int main(int argc, char*args[])
                         responsesLen -= 3;
                         recvData.erase(0, 3);
                         updateCommands = true;
+                        std::cout << "Using nest ID " << (unsigned int)selfNestID << std::endl;
                         break;
                     case (char)ConnectionManager::RequestID::WALK:
                     case (char)ConnectionManager::RequestID::TINTERACT:
@@ -471,6 +478,7 @@ int main(int argc, char*args[])
                                 unsigned char serverCmdId = (unsigned char)recvData[2];
                                 unsigned int antPid = ConnectionManager::getAGNPuint(recvData.substr(3, 4));
                                 std::uint64_t serverCmdArg = 0;
+                                bool success = (char)ConnectionManager::ResponseID::CMDSUCCESS == recvData[1];
                                 switch (serverCmdId)
                                 {
                                     case (char)ConnectionManager::RequestID::WALK:
@@ -495,10 +503,8 @@ int main(int argc, char*args[])
                                 auto PIDit = cmdpids.begin();
                                 auto ARGit = cmdargs.begin();
                                 bool found = false;
-                                std::cout << (unsigned int)serverCmdId << ", " << antPid << ", " << serverCmdArg << std::endl;
                                 for (;IDit != cmdIDs.end();)
                                 {
-                                    std::cout << "A: " << (unsigned int)(*IDit) << ", " << (*PIDit) << ", " << (*ARGit) << std::endl;
                                     if ((*IDit) == (ConnectionManager::RequestID)serverCmdId && (*PIDit) == antPid && (*ARGit) == serverCmdArg)
                                     {
                                         cmdIDs.erase(IDit);
@@ -513,10 +519,14 @@ int main(int argc, char*args[])
                                 }
                                 if (!found)
                                 {
-                                    std::cerr << "Server sent a CMDFAIL/SUCCESS with impossible previous data" << std::endl;
+                                    std::cerr << "Server sent a CMDFAIL/SUCCESS with impossible previous data. ID: " << (unsigned int)serverCmdId << ", PID: " << antPid << ", arg: " << serverCmdArg << std::endl;
                                     conn.finish();
                                     map.cleanup();
                                     return 2;
+                                }
+                                else if (success && (ConnectionManager::RequestID)serverCmdId == ConnectionManager::RequestID::TINTERACT)
+                                {
+                                    wayBack = serverCmdArg != ((map.nests[selfNestID]->p.x<<16) + map.nests[selfNestID]->p.y);
                                 }
                                 break;}
                             default:
@@ -540,42 +550,63 @@ int main(int argc, char*args[])
             conn.send("\0\0\0\x09\0\0\0\x01\x0a", 9);
             reqs.push_back(ConnectionManager::RequestID::CHANGELOG);
         }
-        if (updateCommands && selfNestID != 0xff && hasMap)
+        if ((updateCommands || cmdIDs.empty()) && selfNestID != 0xff && hasMap)
         {
             for (Ant* a : map.nests[selfNestID]->ants)
             {
                 bool moveCommand = false;
                 bool tinterCommand = false;
+                Pos prevTarget = (Pos){0xffff, 0xffff};
                 auto cmdIDit = cmdIDs.begin();
+                auto cmdargit = cmdargs.begin();
                 for (auto antIDit = cmdpids.begin(); antIDit != cmdpids.end(); antIDit++)
                 {
                     if ((*antIDit) != a->pid)
                     {
                         cmdIDit++;
+                        cmdargit++;
                         continue;
                     }
                     if ((*cmdIDit) == ConnectionManager::RequestID::WALK)
                     {
                         moveCommand = true;
+                        if (prevTarget.x == 0xffff && prevTarget.x == 0xffff)
+                        {
+                            prevTarget = (Pos){(unsigned short)(*cmdargit>>48), (unsigned short)((*cmdargit>>16) & 0xffff)};
+                        }
                     }
                     else if ((*cmdIDit) == ConnectionManager::RequestID::TINTERACT)
                     {
                         tinterCommand = true;
                     }
+                    cmdargit++;
                     cmdIDit++;
                 }
                 Pos target;
                 target.x = 0xffff;
                 target.y = 0xffff;
-                std::cout << a->foodCarry << std::endl;
-                if (a->foodCarry > 0)
+                if (a->foodCarry > 0.01 || wayBack)
                 {
                     target = a->parent->p;
                 }
                 else
                 {
+                    targetedFood.clear();
+                    auto cmdIDit = cmdIDs.begin();
+                    auto cmdargit = cmdargs.begin();
+                    for (;cmdIDit != cmdIDs.end(); cmdIDit++)
+                    {
+                        if ((int)(*cmdIDit) == 6)
+                        {
+                            Pos foodpos;
+                            foodpos.x = (*cmdargit)>>16;
+                            foodpos.y = (*cmdargit)&0xffff;
+                            targetedFood.push_back(foodpos);
+                        }
+                        cmdargit++;
+                    }
                     Pos center = a->p;
-                    for (unsigned int size = 1; size < 50; size++)
+                    for (int size = 1; size < 100; size++)
                     {
                         for (int ox = -size + 1; ox < size; ox++)
                         {
@@ -583,7 +614,7 @@ int main(int argc, char*args[])
                             {
                                 continue;
                             }
-                            if (ox + (int)center.x >= map.size.x)
+                            if (ox >= (int)map.size.x - (int)center.x)
                             {
                                 break;
                             }
@@ -592,7 +623,7 @@ int main(int argc, char*args[])
                             if (check.y >= size)
                             {
                                 check.y -= size;
-                                if (map[check] == Map::Tile::FOOD)
+                                if (map[check] == Map::Tile::FOOD && check.x >= 0 && check.x < map.size.x && check.y >= 0 && check.y < map.size.y)
                                 {
                                     bool ok = true;
                                     for (Pos p : targetedFood)
@@ -611,7 +642,9 @@ int main(int argc, char*args[])
                                 }
                                 check.y += size;
                             }
-                            if (map.size.y - check.y > size)
+                            check = center;
+                            check.x += ox;
+                            if (map.size.y - check.y > size && check.x >= 0 && check.x < map.size.x && check.y >= 0 && check.y < map.size.y)
                             {
                                 check.y += size;
                                 if (map[check] == Map::Tile::FOOD)
@@ -634,8 +667,8 @@ int main(int argc, char*args[])
                                 check.y -= size;
                             }
                         }
-                        if (target.x != 0xffff && target.y != 0xffff)
-                        {
+			if (target.x != 0xffff && target.y != 0xffff)
+			{
                             break;
                         }
                         for (int oy = -size; oy <= size; oy++)
@@ -649,11 +682,11 @@ int main(int argc, char*args[])
                                 break;
                             }
                             Pos check = center;
-                            check.x += oy;
+                            check.y += oy;
                             if (check.x >= size)
                             {
                                 check.x -= size;
-                                if (map[check] == Map::Tile::FOOD)
+                                if (map[check] == Map::Tile::FOOD && check.x >= 0 && check.x < map.size.x && check.y >= 0 && check.y < map.size.y)
                                 {
                                     bool ok = true;
                                     for (Pos p : targetedFood)
@@ -675,7 +708,7 @@ int main(int argc, char*args[])
                             if (map.size.x - check.x > size)
                             {
                                 check.x += size;
-                                if (map[check] == Map::Tile::FOOD)
+                                if (map[check] == Map::Tile::FOOD && check.x >= 0 && check.x < map.size.x && check.y >= 0 && check.y < map.size.y)
                                 {
                                     bool ok = true;
                                     for (Pos p : targetedFood)
@@ -703,26 +736,29 @@ int main(int argc, char*args[])
                 }
                 if (target.x != 0xffff && target.y != 0xffff)
                 {
-                    std::cout << "Targeting: " << target.x << ", " << target.y << std::endl;
                     if (!moveCommand)
                     {
                         std::string msg;
                         msg.append("\0\0\0\x15\0\0\0\x01\x04", 9);
                         msg.append(ConnectionManager::makeAGNPuint(a->pid));
                         msg.append(ConnectionManager::makeAGNPushort(target.x));
-                        msg.append("\x7f\0", 2);
+                        msg.append("\x80\0", 2);
                         msg.append(ConnectionManager::makeAGNPushort(target.y));
-                        msg.append("\x7f\0", 2);
+                        msg.append("\x80\0", 2);
                         cmdIDs.push_back(ConnectionManager::RequestID::WALK);
                         cmdpids.push_back(a->pid);
-                        std::uint64_t arg = (unsigned int)target.x<<48 + (unsigned int)target.y + 0x7f0000007f00;
-                        std::cout << "move: " << arg << std::endl;
+                        std::uint64_t arg = ((std::uint64_t)target.x<<48) + ((std::uint64_t)target.y<<16) + 0x800000008000;
+                        //DOUT << "Sent move command with string `" << ConnectionManager::DEBUGstringToHex(msg) << "'." << std::endl;
                         cmdargs.push_back(arg);
                         conn.send(msg.c_str(), msg.length());
                         reqs.push_back(ConnectionManager::RequestID::WALK);
                     }
-                    if (!tinterCommand)
+                    if (!tinterCommand || !moveCommand)
                     {
+                        if (moveCommand)
+                        {
+                            target = prevTarget;
+                        }
                         std::string msg;
                         msg.append("\0\0\0\x11\0\0\0\x01\x06", 9);
                         msg.append(ConnectionManager::makeAGNPuint(a->pid));
@@ -730,14 +766,44 @@ int main(int argc, char*args[])
                         msg.append(ConnectionManager::makeAGNPushort(target.y));
                         cmdIDs.push_back(ConnectionManager::RequestID::TINTERACT);
                         cmdpids.push_back(a->pid);
-                        std::uint64_t arg = (unsigned int)target.x<<16 + (unsigned int)target.y;
-                        std::cout << "tinter: " << arg << std::endl;
+                        std::uint64_t arg = ((unsigned int)target.x<<16) + (unsigned int)target.y;
                         cmdargs.push_back(arg);
                         conn.send(msg.c_str(), msg.length());
                         reqs.push_back(ConnectionManager::RequestID::TINTERACT);
+                        targetedFood.push_back(target);
                     }
                 }
+                else
+                {
+                    //DOUT << "Failed to find a target!" << std::endl;
+                }
             }
+/*
+            for (Ant*a : map.nests[selfNestID]->ants)
+            {
+                DOUT << "Ant " << a->pid << " is at (" << a->p.x << ", " << a->p.y << "). Commands:\n";
+                auto cmdIDit = cmdIDs.begin();
+                auto cmdargit = cmdargs.begin();
+                for (auto apid : cmdpids)
+                {
+                    if (apid == a->pid)
+                    {
+                        unsigned int tcmdID = (unsigned int)(*cmdIDit);
+                        std::uint64_t tcmdarg = *cmdargit;
+                        if (tcmdID == (unsigned int)ConnectionManager::RequestID::WALK)
+                        {
+                            DOUT << "Walk command to (" << ConnectionManager::getAGNPshortdouble(tcmdarg>>32) << ", " << ConnectionManager::getAGNPshortdouble(tcmdarg&0xffffffff) << ")\n";
+                        }
+                        else if (tcmdID == (unsigned int)ConnectionManager::RequestID::TINTERACT)
+                        {
+                            DOUT << "Tile interact command to (" << (tcmdarg>>16) << ", " << (tcmdarg&0xffff) << ")\n";
+                        }
+                    }
+                    cmdIDit++;
+                    cmdargit++;
+                }
+            }
+*/
         }
     }
 

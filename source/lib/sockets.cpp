@@ -246,7 +246,7 @@ bool Connection::connectTo(std::string nip, int nport)
 
 bool Connection::connected()
 {
-    return sockfd >= 0 && sockfd <= RLIMIT_NOFILE;
+    return sockfd >= 0;
 }
 
 

@@ -116,6 +116,7 @@ class Nest
     void init(Map*, Pos, int); // Takes a parent ptr, a position and an ant count
     void giveCommand(NestCommand);
     void step(double);
+    void salute();
     void cleanup();
     Ant* createAnt(unsigned char);
     void killAnt(int);
@@ -145,6 +146,7 @@ class Ant
     Ant(Nest*, DPos); // Takes a parent ptr and a position. Defaults to type = 0
     Ant(Nest*, DPos, unsigned char); // Takes a parent ptr, a position and a type
     void init(Nest*, DPos, unsigned char); // Takes a parent ptr, a position and a type
+    void _init(Nest*, DPos, unsigned char); // Takes a parent ptr, a position and a type
     void giveCommand(AntCommand);
     void step(double);
 };

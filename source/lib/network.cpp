@@ -384,7 +384,7 @@ void ConnectionManager::handlePlayers()
 {
     for (Player* p : players)
     {
-	    p->toClose = !interpretRequests(p) || p->toClose;
+	p->toClose = !interpretRequests(p) || p->toClose;
         if (!p->toClose)
         {
             std::string feedbackString = "";
@@ -527,12 +527,34 @@ void ConnectionManager::handlePlayers()
             p->conn->send("\0\0\0\x0a\0\0\0\x01\0\x02", 10); // PING REQ
         }
     }
-    std::deque<AntEvent>::iterator lowestAntPos = antEventQueue.end() - 1;
-    for (Player*p : players)
+    for (;!antEventQueue.empty(); antEventQueue.pop_front())
     {
-        lowestAntPos = std::min(lowestAntPos, p->antEventPos);
+        bool ok = true;
+        for (Player* p : players)
+        {
+            if (p->antEventPos == antEventQueue.begin())
+            {
+                ok = false;
+                break;
+            }
+        }
+        if (!ok)
+        {
+            break;
+        }
     }
-    for (;lowestAntPos != antEventQueue.begin(); antEventQueue.pop_front());
+    if (antEventQueue.empty())
+    {
+        AntEvent ae;
+        ae.pid = -1;
+        ae.foodCarry = 0;
+        ae.health = 0;
+        antEventQueue.push_back(ae);
+        for (Player*p : players)
+        {
+            p->antEventPos = antEventQueue.begin();
+        }
+    }
 }
 
 
@@ -586,7 +608,10 @@ void ConnectionManager::handleViewers()
         if (it == viewers.end()) {break;}
         del = false;
         Viewer* v = *it;
-        if (!isValid(v) || std::chrono::duration<double>(timpont - v->timeAtLastMessage).count() >= 3.0) {del = true;}
+        if (!isValid(v) || std::chrono::duration<double>(timpont - v->timeAtLastMessage).count() >= 3.0)
+        {
+            del = true;
+        }
     }
 }
 
@@ -712,10 +737,7 @@ bool ConnectionManager::httpResponse(Viewer* v)
             std::string changelogData = "";
             unsigned int clientAt = 0;
             changelogData = data.substr(data.find(' ') + 1, data.find(' ', data.find(' ') + 1) - data.find(' '));
-            std::cout << "Changelog data full " << changelogData << std::endl;
             changelogData = changelogData.substr(17, std::string::npos);
-            std::cout << "Changelog data " << changelogData << std::endl;
-            std::cout << mapEventQueue.size() << std::endl;
             try
             {
                 clientAt = std::stoul(changelogData, nullptr, 10);
@@ -738,19 +760,16 @@ bool ConnectionManager::httpResponse(Viewer* v)
             }
             changelogData.clear();
             unsigned short antc = 0;
-            for (Nest*n : Round::instance->map->nests)
+            for (Ant* a : Round::instance->map->antPermanents)
             {
-                if (n)
-                {
-                    antc += n->ants.size();
-                }
+                if (a) {antc++;}
             }
             changelogData.reserve(10 + antc*4 + (mapEventQueue.size() - clientAt)*5);
             changelogData.append(makeAGNPuint(mapEventQueue.size() - clientAt));
             unsigned int index = 0;
             for (MapEvent me : mapEventQueue)
             {
-                if (index >= clientAt - 1)
+                if (index >= clientAt)
                 {
                     changelogData.append(makeAGNPushort(me.x));
                     changelogData.append(makeAGNPushort(me.y));
@@ -982,7 +1001,7 @@ unsigned int ConnectionManager::getAGNPuint(std::string data)
 
 std::string ConnectionManager::makeAGNPuint(std::uint32_t num)
 {
-    std::string str;
+    std::string str = "";
     str.push_back((char)(num>>24));
     str.push_back((char)(num>>16 & 0xff));
     str.push_back((char)(num>>8 & 0xff));
@@ -1009,7 +1028,7 @@ std::string ConnectionManager::makeAGNPushort(std::uint16_t num)
 double ConnectionManager::getAGNPshortdouble(unsigned int num)
 {
     double ret;
-    ret += num>>16;
+    ret = num>>16;
     ret += (double)(num & 0xffff) / (double)0x10000;
     return ret;
 }
@@ -1018,7 +1037,7 @@ double ConnectionManager::getAGNPshortdouble(unsigned int num)
 unsigned int ConnectionManager::makeAGNPshortdouble(double num)
 {
     unsigned int ret;
-    ret += (unsigned int)std::floor(num)<<16;
+    ret = (unsigned int)std::floor(num)<<16;
     ret += (unsigned int)((num - std::floor(num))*(double)0x10000);
     return ret;
 }
@@ -1027,7 +1046,7 @@ unsigned int ConnectionManager::makeAGNPshortdouble(double num)
 std::uint64_t ConnectionManager::makeAGNPdouble(double num)
 {
     std::uint64_t ret;
-    ret += (std::uint64_t)std::floor(num)<<32;
+    ret = (std::uint64_t)std::floor(num)<<32;
     ret += (std::uint64_t)((num - std::floor(num))*(double)0x100000000);
     return ret;
 }
@@ -1036,7 +1055,7 @@ std::uint64_t ConnectionManager::makeAGNPdouble(double num)
 double ConnectionManager::getAGNPdouble(std::uint64_t num)
 {
     double ret;
-    ret += num>>32;
+    ret = num>>32;
     ret += (double)(num & 0xffffffff) / (double)0x100000000;
     return ret;
 }
@@ -1066,6 +1085,19 @@ std::string ConnectionManager::makeAGNPdoublestr(double num)
     str.push_back((char)((ret>>8) & 0xff));
     str.push_back((char)(ret & 0xff));
     return str;
+}
+
+
+std::string ConnectionManager::DEBUGstringToHex(std::string str)
+{
+    const char hexCharacterString[] = "0123456789abcdef";
+    std::string ret = "";
+    for (char c : str)
+    {
+        ret.push_back(hexCharacterString[(unsigned char)c>>4]);
+        ret.push_back(hexCharacterString[(unsigned char)c&0xf]);
+    }
+    return ret;
 }
 
 
@@ -1136,7 +1168,6 @@ bool ConnectionManager::interpretRequests(Player* p)
             }
             else if (id == (unsigned char)RequestID::JOIN)
             {
-                std::cout << "Fuck me I guess" << std::endl;
                 if (responses.length() > UINT32_MAX-10)
                 {
                     std::string msg = "";
@@ -1251,8 +1282,8 @@ bool ConnectionManager::interpretRequests(Player* p)
                 p->conn->send(head.c_str(), head.length());
                 p->conn->send(msg.c_str(), msg.length());
                 p->conn->send((char*)Round::instance->map->map, (unsigned int)Round::instance->map->size.x * (unsigned int)Round::instance->map->size.y);
-                p->antEventPos = antEventQueue.end() - 1;
-                p->mapEventPos = mapEventQueue.end() - 1;
+                p->antEventPos = --antEventQueue.end();
+                p->mapEventPos = --mapEventQueue.end();
             }
             else
             {
@@ -1337,7 +1368,6 @@ bool ConnectionManager::interpretRequests(Player* p)
                                     rq = 0;
                                     responses = "";
                                 }
-                                std::cout << "id:" << (int)id << std::endl;
                                 responses.push_back((char)id);
                                 responses.append("\x01", 1);
                                 break;}
@@ -1368,7 +1398,7 @@ bool ConnectionManager::interpretRequests(Player* p)
                                 cmd.antID = getAGNPuint(data);
                                 data.erase(0, 4);
                                 cmd.cmd = Command::ID::TINTERACT;
-                                cmd.arg += getAGNPuint(data);
+                                cmd.arg = getAGNPuint(data);
                                 data.erase(0, 4);
                                 if (cmd.antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[cmd.antID] || Round::instance->map->antPermanents[cmd.antID]->commands.size() >= 0xff || Round::instance->map->antPermanents[cmd.antID]->parent != Round::instance->map->nests[p->nestID])
                                 {
@@ -1519,7 +1549,7 @@ bool ConnectionManager::interpretRequests(Player* p)
                                 unsigned int ec = 0;
                                 for (;!mapEventQueue.empty();)
                                 {
-                                    if (p->mapEventPos != mapEventQueue.end()-1)
+                                    if (p->mapEventPos != --mapEventQueue.end())
                                     {
                                         p->mapEventPos++;
                                         events.append(makeAGNPushort((*p->mapEventPos).x));
@@ -1537,7 +1567,7 @@ bool ConnectionManager::interpretRequests(Player* p)
                                 std::size_t insertPos = events.size();
                                 for (;!antEventQueue.empty();)
                                 {
-                                    if (p->antEventPos != antEventQueue.end()-1)
+                                    if (p->antEventPos != --antEventQueue.end())
                                     {
                                         p->antEventPos++;
                                         events.append(makeAGNPuint((*p->antEventPos).pid));

@@ -26,6 +26,7 @@ fetch("internalMapData").then((response) => {
             ctx.fillStyle = "#000000";
             ctx.font = "12px Arial";
             ctx.fillText("Failed to get map data.", 0, 0);
+            setTimeout(window.location.refresh, 5000);
             return null;
         }
         return response.text();
@@ -57,6 +58,7 @@ function refreshMap()
         {
             return response.bytes();
         }
+        setTimeout(refreshMap, 1000);
         return null;
     }).then(updateMap);
 }
@@ -123,7 +125,6 @@ function fillinMap(response)
         }
     }
     baseImgData = imgdata;
-    console.log("Done");
     ctx.putImageData(imgdata, 0, 0);
     refreshMap();
     baseImgData = document.getElementById("MapCanvas").getContext("2d").getImageData(0, 0, __WIDTH, __HEIGHT);
@@ -136,7 +137,6 @@ function updateMap(response)
         return;
     }
     let mec = get32i(response, 0);
-    console.log("mec" + mec.toString());
     let index = 4;
     for (;index < 4 + mec * 5; index += 5)
     {
@@ -145,10 +145,11 @@ function updateMap(response)
         baseImgData.data[(x + __WIDTH * y) * 4] = colors[response[index+4]][0];
         baseImgData.data[(x + __WIDTH * y) * 4 + 1] = colors[response[index+4]][1];
         baseImgData.data[(x + __WIDTH * y) * 4 + 2] = colors[response[index+4]][2];
+        console.log("Changing pixel at " + x.toString() + ", " + y.toString());
     }
-    let copyImgData = baseImgData;
+    let copyImgData = document.getElementById("MapCanvas").getContext("2d").createImageData(baseImgData);
+    copyImgData.data.set(baseImgData.data);
     let antc = get16i(response, index);
-    console.log("antc" + antc.toString());
     for (index = 6 + mec * 5; index < 6 + mec * 5 + antc * 4; index += 4)
     {
         let x = get16i(response, index);
@@ -158,7 +159,7 @@ function updateMap(response)
         copyImgData.data[(x + __WIDTH * y) * 4 + 2] = antColor[2];
     }
     changelogPoint = get32i(response, index);
-    console.log("clp" + changelogPoint.toString());
+    document.getElementById("MapCanvas").getContext("2d").putImageData(copyImgData, 0, 0);
     setTimeout(refreshMap, 40);
 }
 
@@ -166,11 +167,11 @@ function get32i(array, index)
 {
     let num = 0;
     num += array[index];
-    num *= 256;
+    num <<= 8;
     num += array[index + 1];
-    num *= 256;
+    num <<= 8;
     num += array[index + 2];
-    num *= 256;
+    num <<= 8;
     num += array[index + 3];
     return num;
 }
@@ -179,7 +180,7 @@ function get16i(array, index)
 {
     let num = 0;
     num += array[index];
-    num *= 256;
+    num <<= 8;
     num += array[index + 1];
     return num;
 }

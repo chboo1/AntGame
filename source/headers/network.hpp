@@ -1,6 +1,7 @@
 #include <string>
 #include <vector>
 #include <forward_list>
+#include <list>
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -64,13 +65,14 @@ class ConnectionManager
     static double getAGNPdouble(std::uint64_t num);
     static std::string makeAGNPdoublestr(double num);
     static double getAGNPdoublestr(std::string);
+    static std::string DEBUGstringToHex(std::string);
 
     private:
     std::vector<Player*> players;
     std::forward_list<Viewer*> viewers;
     std::deque<Command> commands;
-    std::deque<AntEvent> antEventQueue;
-    std::deque<MapEvent> mapEventQueue;
+    std::list<AntEvent> antEventQueue;
+    std::list<MapEvent> mapEventQueue;
     unsigned int timeInCycle;
 
     void handleViewers();
@@ -106,8 +108,8 @@ class Player
     std::string name = "";
     unsigned int messageSizeLeft = 0;
     unsigned int messageRequestsLeft = 0;
-    std::deque<ConnectionManager::AntEvent>::iterator antEventPos;
-    std::deque<ConnectionManager::MapEvent>::iterator mapEventPos;
+    std::list<ConnectionManager::AntEvent>::iterator antEventPos;
+    std::list<ConnectionManager::MapEvent>::iterator mapEventPos;
     Player();
     Player(Connection*);
     Player(Viewer*);

@@ -333,6 +333,7 @@ void Round::step()
                     n->step(delta);
                     if (n->foodCount <= 0)
                     {
+                        n->salute();
                         delete n;
                         map->nests[i] = nullptr; // Notice we're not shrinking the array, to preserve IDs
                     }
@@ -362,6 +363,7 @@ void Round::step()
                 phase = CLOSED;
             }
             break;
+        case CLOSED: break;
         case ERROR:
             std::cerr << "Encountered an unrecoverable error in server function! Shutting down imminently." << std::endl;
             cm.preclose();
@@ -391,7 +393,7 @@ void Round::end()
         }
         if (winner)
         {
-            std::cout << " The winner is " << winner->name << " (Nest " << winneri << ")" << std::endl;
+            std::cout << " The winner is " << winner->name << " (Nest " << (unsigned int)winneri << ")" << std::endl;
         }
         else
         {
@@ -410,10 +412,12 @@ void Round::reset() // Goes back to state after constructor but before open
     if (map)
     {
         delete map;
+        map = nullptr;
     }
     if (RoundSettings::instance)
     {
         delete RoundSettings::instance;
+        RoundSettings::instance = nullptr;
     }
     if (Connection::listening())
     {
@@ -435,7 +439,6 @@ void Map::init() // Uses RoundSettings::instance to get values
     cleanup();
     if (RoundSettings::instance == nullptr || RoundSettings::instance->isPlayer || RoundSettings::instance->mapFile == "")
     {
-        std::cout << "This bad thing here" << std::endl;
         return;
     }
     if (Round::instance->logging)
@@ -565,15 +568,15 @@ void Map::_decode(std::istream* mapFile)
         cleanup();
         return;
     }
-    for (Nest* n : nests)
+    for (Nest* nn : nests)
     {
-        if (n->p.x > size.x || n->p.y > size.y)
+        if (nn->p.x >= size.x || nn->p.y >= size.y)
         {
             std::cerr << "A nest is out of bounds!" << std::endl;
             cleanup();
             return;
         }
-        map[n->p.x + n->p.y * size.x] = (unsigned char)Tile::NEST;
+        map[nn->p.x + nn->p.y * size.x] = (unsigned char)Tile::NEST;
     }
     } catch (std::invalid_argument const& error) {
         std::cerr << "Map string format invalid: Hexadecimal numbers expected! Exception is " << error.what() << std::endl;
@@ -593,7 +596,7 @@ void Map::_decode(std::istream* mapFile)
 
 Map::Tile Map::operator[](Pos p)
 {
-    if (p.x > size.x || p.y > size.y)
+    if (p.x >= size.x || p.y >= size.y)
     {
         return Tile::UNKNOWN;
     }
@@ -603,7 +606,7 @@ Map::Tile Map::operator[](Pos p)
 
 bool Map::tileWalkable(Pos p)
 {
-    if (p.x > size.x || p.y > size.y) {return false;}
+    if (p.x >= size.x || p.y >= size.y) {return false;}
     return tileWalkable((*this)[p]);
 }
 
@@ -638,11 +641,14 @@ void Map::cleanup()
         {
             continue;
         }
+        nests[i]->salute();
         delete nests[i];
+        nests[i] = nullptr;
     }
     nests.clear();
     size.x = 0;
     size.y = 0;
+    antPermanents.clear();
 }
 Map::~Map()
 {
@@ -729,6 +735,7 @@ void Nest::killAnt(int index)
         {
             parent->antPermanents[a->pid] = nullptr;
             delete a;
+            ants[index] = nullptr;
         }
     }
     ants.erase(ants.begin() + index);
@@ -750,6 +757,14 @@ void Nest::cleanup()
              continue;
          }
          delete ants[i];
+    }
+    ants.clear();
+}
+void Nest::salute()
+{
+    for (;!ants.empty();)
+    {
+        killAnt(0);
     }
     ants.clear();
 }
@@ -779,6 +794,14 @@ void Ant::init(Nest* nparent, DPos npos, unsigned char ntype) // Takes a parent 
     pid = parent->parent->antPermanents.size();
     parent->parent->antPermanents.push_back(this);
 }
+void Ant::_init(Nest* nparent, DPos npos, unsigned char ntype)
+{
+    parent = nparent;
+    p = npos;
+    type = ntype;
+    health = antTypes[type].healthMod * RoundSettings::instance->antHealth;
+    foodCarry = 0;
+}
 void Ant::giveCommand(AntCommand com)
 {
     commands.push_back(com);
@@ -792,22 +815,33 @@ void Ant::step(double delta)
         {
             case AntCommand::ID::MOVE:{
                 moved = true;
-                DPos dest = {ConnectionManager::getAGNPshortdouble(cmd.arg>>32), ConnectionManager::getAGNPshortdouble(cmd.arg & 0xffffffff)};
+                DPos dest;
+                dest.x = ConnectionManager::getAGNPshortdouble(cmd.arg>>32);
+                dest.y = ConnectionManager::getAGNPshortdouble(cmd.arg & 0xffffffff);
+                //std::cout << "Ant " << pid << " is trying to move to (" << dest.x << ", " << dest.y << "). It is currently at (" << p.x << ", " << p.y << "). arg:" << cmd.arg << '\n';
                 dest.x -= p.x;
                 dest.y -= p.y;
                 double destLen = dest.magnitude();
-                dest.x = std::min(dest.x / destLen * delta * antTypes[type].speedMod * RoundSettings::instance->movementSpeed, dest.x + 0.5);
-                dest.y = std::min(dest.y / destLen * delta * antTypes[type].speedMod * RoundSettings::instance->movementSpeed, dest.y + 0.5);
+                if (destLen < 0.5)
+                {
+                    cmd.state = AntCommand::State::SUCCESS;
+                    break;
+                }
+                else if (destLen > delta * antTypes[type].speedMod * RoundSettings::instance->movementSpeed)
+                {
+                    dest.x = dest.x / destLen * delta * antTypes[type].speedMod * RoundSettings::instance->movementSpeed;
+                    dest.y = dest.y / destLen * delta * antTypes[type].speedMod * RoundSettings::instance->movementSpeed;
+                }
+                //std::cout << " Dest is (" << dest.x << ", " << dest.y << ")." << std::endl;
                 Pos npos = p + dest;
                 Pos v = p;
-                for (int i = 0; i < std::ceil(std::max(dest.x, dest.y)); i++)
+                for (int i = 0; i < std::ceil(std::max(abs(dest.x), abs(dest.y))); i++)
                 {
-                    unsigned short x = p.x + (double)i * dest.x / std::max(dest.x, dest.y);
-                    unsigned short y = p.y + (double)i * dest.y / std::max(dest.x, dest.y);
+                    unsigned short x = p.x + (double)i * dest.x / std::max(abs(dest.x), abs(dest.y));
+                    unsigned short y = p.y + (double)i * dest.y / std::max(abs(dest.x), abs(dest.y));
                     Pos ip{x, y};
                     if (x < 0)
                     {
-                        // To review later
                         npos.x = -1;
                         npos.y = y;
                         break;
@@ -818,13 +852,13 @@ void Ant::step(double delta)
                         npos.y = -1;
                         break;
                     }
-                    else if (x > parent->parent->size.x)
+                    else if (x >= parent->parent->size.x)
                     {
                         npos.x = parent->parent->size.x;
                         npos.y = y;
                         break;
                     }
-                    else if (y > parent->parent->size.y)
+                    else if (y >= parent->parent->size.y)
                     {
                         npos.y = parent->parent->size.y;
                         npos.x = x;
@@ -847,18 +881,24 @@ void Ant::step(double delta)
                     p = v;
                     p.x += 0.5;
                     p.y += 0.5;
+                    std::cout << "Move fail" << std::endl;
                 }
-                if (abs(std::floor(p.x) - ConnectionManager::makeAGNPshortdouble(cmd.arg>>32)) < 0.5 && abs(std::floor(p.y) - ConnectionManager::makeAGNPshortdouble(cmd.arg&0xffffffff)) < 0.5)
+                if (abs(p.x - ConnectionManager::makeAGNPshortdouble(cmd.arg>>32)) < 0.5 && abs(p.y - ConnectionManager::makeAGNPshortdouble(cmd.arg&0xffffffff)) < 0.5)
                 {
                     cmd.state = AntCommand::State::SUCCESS;
                 }
                 break;}
             case AntCommand::ID::TINTERACT:{
                 Pos target = {(unsigned short)(cmd.arg>>16), (unsigned short)(cmd.arg&0xffff)};
-                if (((DPos)target - p).magnitude() > RoundSettings::instance->pickupRange)
+                if (target.x >= parent->parent->size.x || target.y >= parent->parent->size.y)
+                {
+                    cmd.state = AntCommand::State::FAIL;
+                }
+                else if (((DPos)target - p).magnitude() > RoundSettings::instance->pickupRange)
                 {
                     if (!moved) // This basically means if you're moving somewhere it'll let you retry next frame
                     {
+                        //std::cout << "Ant " << pid << " failed to interact with a tile at (" << target.x << ", " << target.y << ")." << std::endl;
                         cmd.state = AntCommand::State::FAIL;
                     }
                 }
@@ -869,6 +909,7 @@ void Ant::step(double delta)
                         case Map::Tile::FOOD:
                             if (antTypes[type].capacity * RoundSettings::instance->capacityMod < foodCarry + RoundSettings::instance->foodYield)
                             {
+                                std::cout << "Failure by capacity" << std::endl;
                                 cmd.state = AntCommand::State::FAIL;
                             }
                             else
@@ -898,13 +939,16 @@ void Ant::step(double delta)
                                 }
                                 if (n == parent)
                                 {
-                                    parent->foodCount += foodCarry;
-                                    foodCarry = 0;
-                                    ConnectionManager::AntEvent ae;
-                                    ae.pid = pid;
-                                    ae.foodCarry = foodCarry;
-                                    ae.health = health;
-                                    Round::instance->cm.antEventQueue.push_back(ae);
+                                    if (foodCarry > 0)
+                                    {
+                                        parent->foodCount += foodCarry;
+                                        foodCarry = 0;
+                                        ConnectionManager::AntEvent ae;
+                                        ae.pid = pid;
+                                        ae.foodCarry = foodCarry;
+                                        ae.health = health;
+                                        Round::instance->cm.antEventQueue.push_back(ae);
+                                    }
                                 }
                                 else
                                 {
@@ -918,8 +962,10 @@ void Ant::step(double delta)
                                 }
                                 cmd.state = AntCommand::State::SUCCESS;
                             }
+                            if (cmd.state == AntCommand::State::FAIL) {std::cout << "Failure by nestn't" << std::endl;}
                             break;
                         default:
+                            //std::cout << "Failure by default (" << target.x << ", " << target.y << "): " << (unsigned int)(unsigned char)parent->parent->map[target.y * parent->parent->size.x + target.x] << " / " << (unsigned int)(*parent->parent)[target] << std::endl;
                             cmd.state = AntCommand::State::FAIL;
                             break;
                     }
