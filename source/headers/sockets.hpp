@@ -54,6 +54,7 @@ class Connection
     static int listenSockfd;
     Connection(int);
 #endif
+    static bool isInit;
     int sockfd = -1;
 #endif    
     public:

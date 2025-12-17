@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cmath>
 #include <deque>
+#include <sstream>
 
 
 RoundSettings* RoundSettings::instance = nullptr;
@@ -69,6 +70,34 @@ void RoundSettings::loadConfig(std::string config)
         }
     }
     configF.close();
+}
+
+
+void RoundSettings::_loadConfig(std::string config)
+{
+    std::stringstream configF(config);
+    mapFile = "defaultMap";
+    port = ANTNET_DEFAULT_PORT;
+    gameStartDelay = 3.0;
+    timeScale = 1.0;
+    startingFood = 60;
+    movementSpeed = 5.0;
+    hungerRate = 1.0;
+    foodYield = 1.0;
+    foodTheftYield = 3.0;
+    antCost = 5.0;
+    attackRange = 10.0;
+    attackDamage = 1.0;
+    antHealth = 5.0;
+    pickupRange = 10.0;
+    capacityMod = 1.0;
+    std::string line;
+    while (getline(configF, line))
+    {
+        std::string identifier = line.substr(0, line.find(':'));
+        std::string data = line.find(':') >= line.length() - 1 ? "": line.substr(line.find(':')+1);
+        configLine(identifier, data);
+    }
 }
 
 
@@ -285,16 +314,14 @@ void ConnectionManager::start()
         {
             p->conn->send("\0\0\0\x0a\0\0\0\x01\0\x04", 10); // START
         }
-        if (!isValid(p)) // Running check again to detect if it changed when sending data
+        if (isValid(p)) // Running check again to detect if it changed when sending data
         {
-            p->toClose = true;
-        }
-        if (Round::instance->map->nests.size() >= p->nestID && Round::instance->map->nests[p->nestID] != nullptr)
-        {
-            Round::instance->map->nests[p->nestID]->name = p->name;
+            if (Round::instance->map->nests.size() > p->nestID && Round::instance->map->nests[p->nestID] != nullptr)
+            {
+                Round::instance->map->nests[p->nestID]->name = p->name;
+            }
         }
     }
-    timeInCycle = 0;
 }
 
 
@@ -359,6 +386,10 @@ void ConnectionManager::reset()
     {
         if (p)
         {
+            if (Round::instance->logging)
+            {
+                std::cout << "Kicking out player at nest ID " << (int)p->nestID << std::endl;
+            }
             delete p;
         }
     }
@@ -1220,6 +1251,7 @@ bool ConnectionManager::interpretRequests(Player* p)
                 {
                     unsigned int configFileSize = inf.tellg();
                     inf.seekg(0);
+                    std::cout << "Sending response to settings" << std::endl;
                     p->conn->send((makeAGNPuint(configFileSize + 14) + "\0\0\0\x01\x05\x05" + makeAGNPuint(configFileSize)).c_str(), 14); // OK DATA
                     char buf[4096];
                     unsigned int bytesSent = 0;
@@ -1227,13 +1259,13 @@ bool ConnectionManager::interpretRequests(Player* p)
                     {
                         if (!inf.get(buf, 4096).fail())
                         {
-                        p->conn->send(buf, inf.gcount());
-                        bytesSent += inf.gcount();
+                            p->conn->send(buf, inf.gcount());
+                            bytesSent += inf.gcount();
                         }
                         else {break;}
                         if (inf.gcount() < 4096) {break;}
                     }
-		            inf.close();
+		    inf.close();
                 }
             }
             else if (id == (unsigned char)RequestID::MAP)

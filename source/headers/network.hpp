@@ -73,7 +73,6 @@ class ConnectionManager
     std::deque<Command> commands;
     std::list<AntEvent> antEventQueue;
     std::list<MapEvent> mapEventQueue;
-    unsigned int timeInCycle;
 
     void handleViewers();
     void handlePlayers();
@@ -141,5 +140,6 @@ class RoundSettings
     double capacityMod;
     RoundSettings();
     void loadConfig(std::string config);
+    void _loadConfig(std::string config);
 };
 #endif

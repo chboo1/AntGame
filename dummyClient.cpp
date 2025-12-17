@@ -61,7 +61,7 @@ int main(int argc, char*args[])
         conn.finish();
         return 2;
     }
-    std::cout << "Successfully connected to server. Using name " << name << " " << name.length() << std::endl;
+    std::cout << "Successfully connected to server. Using name " << name << std::endl;
     ideal.clear();
     ideal.append(ConnectionManager::makeAGNPuint(name.length() + 10));
     ideal.append(ConnectionManager::makeAGNPuint(1));
@@ -126,6 +126,8 @@ int main(int argc, char*args[])
         conn.finish();
         return 1;
     }
+    new RoundSettings;
+    RoundSettings::instance->antHealth = 5;
     Map map;
     conn.send("\0\0\0\x0a\0\0\0\x02\x0b\x09", 10);
     bool dead = false;
@@ -138,6 +140,7 @@ int main(int argc, char*args[])
     std::deque<Pos> targetedFood;
     reqs.push_back(ConnectionManager::RequestID::MAP);
     reqs.push_back(ConnectionManager::RequestID::ME);
+    std::chrono::steady_clock::time_point lastNewAnt = std::chrono::steady_clock::now();
     bool wayBack = false;
     for (recvData.clear(); !dead; recvData = conn.readall())
     {
@@ -150,6 +153,7 @@ int main(int argc, char*args[])
         }
         bool updateCommands = false;
         bool sendChangelogReq = false;
+        dead = !conn.connected();
         while (recvData.length() >= 10)
         {
             unsigned int responsesLen = ConnectionManager::getAGNPuint(recvData);
@@ -157,7 +161,7 @@ int main(int argc, char*args[])
             unsigned int rq = ConnectionManager::getAGNPuint(recvData);
             recvData.erase(0, 4);
             responsesLen -= 8;
-            while (recvData.length() < responsesLen)
+            while (recvData.length() < responsesLen && conn.connected())
             {
                 recvData.append(conn.readall());
             }
@@ -194,6 +198,13 @@ int main(int argc, char*args[])
                             return 2;
                         }
                         map.cleanup();
+                        if (recvData.length() < 7 || responsesLen < 7)
+                        {
+                            std::cerr << "No space for header of a MAP request!" << std::endl;
+                            conn.finish();
+                            map.cleanup();
+                            return 2;
+                        }
                         map.size.x = ConnectionManager::getAGNPushort(recvData.substr(2, 2));
                         map.size.y = ConnectionManager::getAGNPushort(recvData.substr(4, 2));
                         unsigned char nestc = (unsigned char)recvData[6];
@@ -271,7 +282,10 @@ int main(int argc, char*args[])
                             return 2;
                         }
                         map.map = new unsigned char[(unsigned int)map.size.x * (unsigned int)map.size.y];
-                        recvData.copy((char*)map.map, index, (unsigned int)map.size.x * (unsigned int)map.size.y);
+                        for (unsigned int i = 0; i < (unsigned int)map.size.x * (unsigned int)map.size.y; i++)
+                        {
+                            map.map[i] = recvData[i+index];
+                        }
                         recvData.erase(0, index + (unsigned int)map.size.x * (unsigned int)map.size.y);
                         responsesLen -= index + (unsigned int)map.size.x * (unsigned int)map.size.y;
                         sendChangelogReq = true;
@@ -430,17 +444,52 @@ int main(int argc, char*args[])
                                 map.antPermanents[pid]->foodCarry = food;
                                 map.antPermanents[pid]->health = health;
                             }
-                            DOUT << "Ant " << pid << " has " << health << " health and " << food << " food." << std::endl;
                             index += 20;
                         }
                         recvData.erase(0, index);
                         responsesLen -= index;
                         sendChangelogReq = true;
                         break;}
+                    case (char)ConnectionManager::RequestID::SETTINGS:{
+                        if (recvData[1] != (char)ConnectionManager::ResponseID::OKDATA)
+                        {
+                            std::cerr << "Server sent wrong response code to settings request: " << (unsigned int)(unsigned char)recvData[1] << std::endl;
+                            conn.finish();
+                            map.cleanup();
+                            return 2;
+                        }
+                        if (recvData.length() < 6 || responsesLen < 6)
+                        {
+                            std::cerr << "Ran out of data while getting file size of settings request!" << std::endl;
+                            conn.finish();
+                            map.cleanup();
+                            return 2;
+                        }
+                        unsigned int flength = ConnectionManager::getAGNPuint(recvData.substr(2, 4));
+                        if (recvData.length() < flength + 6 || responsesLen < flength + 6)
+                        {
+                            std::cerr << "Ran out of data while getting settings." << std::endl;
+                            conn.finish();
+                            map.cleanup();
+                            return 2;
+                        }
+                        std::string filedata = recvData.substr(6, flength);
+                        if (!RoundSettings::instance){new RoundSettings;}
+                        RoundSettings::instance->_loadConfig(filedata);
+                        responsesLen -= 6 + flength;
+                        recvData.erase(0, 6 + flength);
+                        break;}
                     case (char)ConnectionManager::RequestID::ME:
                         if (recvData[1] != (char)ConnectionManager::ResponseID::OKDATA)
                         {
                             std::cerr << "Server sent wrong response code to me request: " << (unsigned int)(unsigned char)recvData[1] << std::endl;
+                            conn.finish();
+                            map.cleanup();
+                            return 2;
+                        }
+                        if (recvData.length() < 3 || responsesLen < 3)
+                        {
+                            std::cerr << "Ran out of data during me request!" << std::endl;
                             conn.finish();
                             map.cleanup();
                             return 2;
@@ -451,6 +500,7 @@ int main(int argc, char*args[])
                         updateCommands = true;
                         std::cout << "Using nest ID " << (unsigned int)selfNestID << std::endl;
                         break;
+                    case (char)ConnectionManager::RequestID::NEWANT:
                     case (char)ConnectionManager::RequestID::WALK:
                     case (char)ConnectionManager::RequestID::TINTERACT:
                         recvData.erase(0, 2);
@@ -461,6 +511,7 @@ int main(int argc, char*args[])
                         {
                             case (char)ConnectionManager::ResponseID::PING:
                                 conn.send("\0\0\0\x09\0\0\0\x01\x01", 9);
+                                std::cout << "Ping response" << std::endl;
                                 recvData.erase(0, 2);
                                 responsesLen -= 2;
                                 break;
@@ -476,7 +527,11 @@ int main(int argc, char*args[])
                             case (char)ConnectionManager::ResponseID::CMDSUCCESS:{
                                 updateCommands = true;
                                 unsigned char serverCmdId = (unsigned char)recvData[2];
-                                unsigned int antPid = ConnectionManager::getAGNPuint(recvData.substr(3, 4));
+                                unsigned int antPid = 0;
+                                if (recvData.length() >= 4)
+                                {
+                                    antPid = ConnectionManager::getAGNPuint(recvData.substr(3, 4));
+                                }
                                 std::uint64_t serverCmdArg = 0;
                                 bool success = (char)ConnectionManager::ResponseID::CMDSUCCESS == recvData[1];
                                 switch (serverCmdId)
@@ -492,6 +547,12 @@ int main(int argc, char*args[])
                                         serverCmdArg = ConnectionManager::getAGNPuint(recvData.substr(7, 4));
                                         recvData.erase(0, 11);
                                         responsesLen -= 11;
+                                        break;
+                                    case (char)ConnectionManager::RequestID::NEWANT:
+                                        serverCmdArg = recvData[3];
+                                        recvData.erase(0, 4);
+                                        responsesLen -= 4;
+                                        antPid = 0;
                                         break;
                                     default:
                                         std::cerr << "Server sent a CMDFAIL/SUCCESS with impossible previous data (ID)" << (unsigned int)serverCmdId << std::endl;
@@ -550,6 +611,18 @@ int main(int argc, char*args[])
             conn.send("\0\0\0\x09\0\0\0\x01\x0a", 9);
             reqs.push_back(ConnectionManager::RequestID::CHANGELOG);
         }
+        if (selfNestID != 0xff && hasMap)
+        {
+            if ((((std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - lastNewAnt).count() > 5 && map.nests[selfNestID]->foodCount > 20) || map.nests[selfNestID]->foodCount > 100) && std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - lastNewAnt).count() > 0.5) && map.nests[selfNestID]->ants.size() < 255)
+            {
+                conn.send("\0\0\0\x0a\0\0\0\x01\x08\0", 10);
+                reqs.push_back(ConnectionManager::RequestID::NEWANT);
+                cmdIDs.push_back(ConnectionManager::RequestID::NEWANT);
+                cmdpids.push_back(0);
+                cmdargs.push_back(0);
+                lastNewAnt = std::chrono::steady_clock::now();
+            }
+        }
         if ((updateCommands || cmdIDs.empty()) && selfNestID != 0xff && hasMap)
         {
             for (Ant* a : map.nests[selfNestID]->ants)
@@ -606,7 +679,7 @@ int main(int argc, char*args[])
                         cmdargit++;
                     }
                     Pos center = a->p;
-                    for (int size = 1; size < 100; size++)
+                    for (int size = 1; size < 600; size++)
                     {
                         for (int ox = -size + 1; ox < size; ox++)
                         {
@@ -644,10 +717,10 @@ int main(int argc, char*args[])
                             }
                             check = center;
                             check.x += ox;
-                            if (map.size.y - check.y > size && check.x >= 0 && check.x < map.size.x && check.y >= 0 && check.y < map.size.y)
+                            if (map.size.y - check.y > size)
                             {
                                 check.y += size;
-                                if (map[check] == Map::Tile::FOOD)
+                                if (map[check] == Map::Tile::FOOD && check.x >= 0 && check.x < map.size.x && check.y >= 0 && check.y < map.size.y)
                                 {
                                     bool ok = true;
                                     for (Pos p : targetedFood)
@@ -748,7 +821,6 @@ int main(int argc, char*args[])
                         cmdIDs.push_back(ConnectionManager::RequestID::WALK);
                         cmdpids.push_back(a->pid);
                         std::uint64_t arg = ((std::uint64_t)target.x<<48) + ((std::uint64_t)target.y<<16) + 0x800000008000;
-                        //DOUT << "Sent move command with string `" << ConnectionManager::DEBUGstringToHex(msg) << "'." << std::endl;
                         cmdargs.push_back(arg);
                         conn.send(msg.c_str(), msg.length());
                         reqs.push_back(ConnectionManager::RequestID::WALK);
@@ -773,40 +845,13 @@ int main(int argc, char*args[])
                         targetedFood.push_back(target);
                     }
                 }
-                else
-                {
-                    //DOUT << "Failed to find a target!" << std::endl;
-                }
             }
-/*
-            for (Ant*a : map.nests[selfNestID]->ants)
-            {
-                DOUT << "Ant " << a->pid << " is at (" << a->p.x << ", " << a->p.y << "). Commands:\n";
-                auto cmdIDit = cmdIDs.begin();
-                auto cmdargit = cmdargs.begin();
-                for (auto apid : cmdpids)
-                {
-                    if (apid == a->pid)
-                    {
-                        unsigned int tcmdID = (unsigned int)(*cmdIDit);
-                        std::uint64_t tcmdarg = *cmdargit;
-                        if (tcmdID == (unsigned int)ConnectionManager::RequestID::WALK)
-                        {
-                            DOUT << "Walk command to (" << ConnectionManager::getAGNPshortdouble(tcmdarg>>32) << ", " << ConnectionManager::getAGNPshortdouble(tcmdarg&0xffffffff) << ")\n";
-                        }
-                        else if (tcmdID == (unsigned int)ConnectionManager::RequestID::TINTERACT)
-                        {
-                            DOUT << "Tile interact command to (" << (tcmdarg>>16) << ", " << (tcmdarg&0xffff) << ")\n";
-                        }
-                    }
-                    cmdIDit++;
-                    cmdargit++;
-                }
-            }
-*/
         }
     }
-
+    if (RoundSettings::instance)
+    {
+        delete RoundSettings::instance;
+    }
     conn.finish();
     map.cleanup();
     return 0;

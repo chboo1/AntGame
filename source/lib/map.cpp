@@ -229,7 +229,10 @@ void Round::start()
     cm.start();
     for (Nest* n : map->nests)
     {
-        n->foodCount = RoundSettings::instance->startingFood;
+        if (n)
+        {
+            n->foodCount = RoundSettings::instance->startingFood;
+        }
     }
 }
 
@@ -690,7 +693,7 @@ void Nest::step(double delta)
         switch (cmd.cmd)
         {
             case NestCommand::ID::NEWANT:
-                if (foodCount < antTypes[cmd.arg].costMod * RoundSettings::instance->antCost)
+                if (foodCount < antTypes[cmd.arg].costMod * RoundSettings::instance->antCost || ants.size() >= 255)
                 {
                     cmd.state = NestCommand::State::FAIL;
                     break;
@@ -818,7 +821,6 @@ void Ant::step(double delta)
                 DPos dest;
                 dest.x = ConnectionManager::getAGNPshortdouble(cmd.arg>>32);
                 dest.y = ConnectionManager::getAGNPshortdouble(cmd.arg & 0xffffffff);
-                //std::cout << "Ant " << pid << " is trying to move to (" << dest.x << ", " << dest.y << "). It is currently at (" << p.x << ", " << p.y << "). arg:" << cmd.arg << '\n';
                 dest.x -= p.x;
                 dest.y -= p.y;
                 double destLen = dest.magnitude();
@@ -832,7 +834,6 @@ void Ant::step(double delta)
                     dest.x = dest.x / destLen * delta * antTypes[type].speedMod * RoundSettings::instance->movementSpeed;
                     dest.y = dest.y / destLen * delta * antTypes[type].speedMod * RoundSettings::instance->movementSpeed;
                 }
-                //std::cout << " Dest is (" << dest.x << ", " << dest.y << ")." << std::endl;
                 Pos npos = p + dest;
                 Pos v = p;
                 for (int i = 0; i < std::ceil(std::max(abs(dest.x), abs(dest.y))); i++)
@@ -881,7 +882,6 @@ void Ant::step(double delta)
                     p = v;
                     p.x += 0.5;
                     p.y += 0.5;
-                    std::cout << "Move fail" << std::endl;
                 }
                 if (abs(p.x - ConnectionManager::makeAGNPshortdouble(cmd.arg>>32)) < 0.5 && abs(p.y - ConnectionManager::makeAGNPshortdouble(cmd.arg&0xffffffff)) < 0.5)
                 {
@@ -898,7 +898,6 @@ void Ant::step(double delta)
                 {
                     if (!moved) // This basically means if you're moving somewhere it'll let you retry next frame
                     {
-                        //std::cout << "Ant " << pid << " failed to interact with a tile at (" << target.x << ", " << target.y << ")." << std::endl;
                         cmd.state = AntCommand::State::FAIL;
                     }
                 }
@@ -909,7 +908,6 @@ void Ant::step(double delta)
                         case Map::Tile::FOOD:
                             if (antTypes[type].capacity * RoundSettings::instance->capacityMod < foodCarry + RoundSettings::instance->foodYield)
                             {
-                                std::cout << "Failure by capacity" << std::endl;
                                 cmd.state = AntCommand::State::FAIL;
                             }
                             else
@@ -962,10 +960,8 @@ void Ant::step(double delta)
                                 }
                                 cmd.state = AntCommand::State::SUCCESS;
                             }
-                            if (cmd.state == AntCommand::State::FAIL) {std::cout << "Failure by nestn't" << std::endl;}
                             break;
                         default:
-                            //std::cout << "Failure by default (" << target.x << ", " << target.y << "): " << (unsigned int)(unsigned char)parent->parent->map[target.y * parent->parent->size.x + target.x] << " / " << (unsigned int)(*parent->parent)[target] << std::endl;
                             cmd.state = AntCommand::State::FAIL;
                             break;
                     }

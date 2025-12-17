@@ -104,6 +104,16 @@ class Nest
         State state;
         std::uint64_t arg;
     };
+    class NestStats
+    {
+        double foodTaken;
+        unsigned int antsMade;
+        unsigned int peakAnts;
+        double peakFood;
+        unsigned char rank;
+        double timeLasted;
+        unsigned int kills;
+    };
     Map*parent;
     Pos p;
     std::vector<Ant*> ants;

@@ -1,5 +1,6 @@
 #include "sockets.hpp"
 #include <iostream>
+#include <csignal>
 
 
 int Connection::port = ANTNET_DEFAULT_PORT;
@@ -7,9 +8,17 @@ Connection::ErrState Connection::serrorState = Connection::ErrState::OK;
 
 #ifdef ANTNET_UNIX
 int Connection::listenSockfd = -1;
+bool Connection::isInit = false;
 
 
-Connection::Connection(){}
+Connection::Connection()
+{
+    if (!isInit)
+    {
+        isInit = true;
+        std::signal(SIGPIPE, SIG_IGN);
+    }
+}
 Connection::~Connection()
 {
     finish();
@@ -264,7 +273,7 @@ bool Connection::send(const char* message, size_t len)
         return true;
     }
     int ret;
-    if ((ret = write(sockfd, message, (int)len)) < len)
+    if ((ret = write(sockfd, message, len)) < len)
     {
         if (ret < 0)
         {
