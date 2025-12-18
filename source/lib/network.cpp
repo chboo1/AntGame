@@ -1251,7 +1251,6 @@ bool ConnectionManager::interpretRequests(Player* p)
                 {
                     unsigned int configFileSize = inf.tellg();
                     inf.seekg(0);
-                    std::cout << "Sending response to settings" << std::endl;
                     p->conn->send((makeAGNPuint(configFileSize + 14) + "\0\0\0\x01\x05\x05" + makeAGNPuint(configFileSize)).c_str(), 14); // OK DATA
                     char buf[4096];
                     unsigned int bytesSent = 0;
@@ -1558,12 +1557,10 @@ bool ConnectionManager::interpretRequests(Player* p)
                                 std::uint64_t antc = 0;
                                 for (Nest* n : Round::instance->map->nests) {if (n) {antc += n->ants.size();}}
                                 msg.reserve((std::uint64_t)Round::instance->map->nests.size() * 9UL + antc * 13UL);
-                                std::cout << "Nests: " << Round::instance->map->nests.size() << std::endl;
                                 for (Nest* n : Round::instance->map->nests)
                                 {
                                     if (n)
                                     {
-                                        std::cout << "Nest w/ " << n->ants.size() << " ants at " << msg.size() << std::endl;
                                         msg.append(makeAGNPdoublestr(n->foodCount));
                                         msg.push_back((char)(unsigned char)std::min(n->ants.size(), (std::size_t)0xfe));
                                         unsigned char anti = 0;
@@ -1582,7 +1579,6 @@ bool ConnectionManager::interpretRequests(Player* p)
                                         msg.append("\xff\xff\xff\xff\xff\xff\xff\xff\0", 9);
                                     }
                                 }
-                                std::cout << "Done at " << msg.size() << std::endl;
                                 std::string events;
                                 unsigned int ec = 0;
                                 for (;!mapEventQueue.empty();)
@@ -1623,7 +1619,6 @@ bool ConnectionManager::interpretRequests(Player* p)
                                 head.append(makeAGNPuint(10+msg.length()+events.length()));
                                 head.append(makeAGNPuint(1));
                                 head.append("\x0a\x05", 2);
-                                std::cout << head.length() + msg.length() << ", " << events.length() << ", " << head.length() + msg.length() + events.length() << std::endl;
                                 p->conn->send(head.c_str(), head.length());
                                 p->conn->send(msg.c_str(), msg.length());
                                 p->conn->send(events.c_str(), events.length());

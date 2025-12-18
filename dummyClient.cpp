@@ -164,6 +164,7 @@ int main(int argc, char*args[])
             while (recvData.length() < responsesLen && conn.connected())
             {
                 recvData.append(conn.readall());
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             while (responsesLen >= 2 && recvData.length() >= 2)
             {
@@ -328,7 +329,6 @@ int main(int argc, char*args[])
                                 n->ants.clear();
                                 n->foodCount = ConnectionManager::getAGNPdoublestr(recvData.substr(index, 8));
                                 unsigned char antc = (unsigned char)recvData[index+8];
-                                std::cout << "Nest w/ " << (unsigned int)antc << " ants at " << index << std::endl;
                                 n->ants.reserve(antc);
                                 index += 9;
                                 if (recvData.length() < index + antc * 13 || responsesLen < index + antc * 13)
@@ -384,7 +384,6 @@ int main(int argc, char*args[])
                         }
                         delete a;
                         a = nullptr;
-                        std::cout << "Done at " << index << std::endl;
                         for (unsigned int i = 0; i < map.antPermanents.size(); i++)
                         {
                             if (!antExists[i])
@@ -408,8 +407,6 @@ int main(int argc, char*args[])
                         if (recvData.length() < index + 5*mec || responsesLen < index + 5*mec)
                         {
                             std::cerr << "Ran out of data while trying to get map events in CHANGELOG object." << std::endl;
-                            std::cout << mec << ", " << index << ", " << recvData.length() << std::endl;
-                            std::cout << ConnectionManager::DEBUGstringToHex(recvData.substr(index-4, 4)) << std::endl;
                             conn.finish();
                             map.cleanup();
                             return 2;
@@ -851,6 +848,7 @@ int main(int argc, char*args[])
                 }
             }
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     if (RoundSettings::instance)
     {
