@@ -142,6 +142,7 @@ int main(int argc, char*args[])
     reqs.push_back(ConnectionManager::RequestID::ME);
     std::chrono::steady_clock::time_point lastNewAnt = std::chrono::steady_clock::now();
     bool wayBack = false;
+    unsigned int lastSize = 1;
     for (recvData.clear(); !dead; recvData = conn.readall())
     {
         if (!conn.connected())
@@ -679,8 +680,8 @@ int main(int argc, char*args[])
                         }
                         cmdargit++;
                     }
-                    Pos center = a->p;
-                    for (int size = 1; size < 600; size++)
+                    Pos center = map.nests[selfNestID]->p;
+                    for (int size = lastSize; size < 600; size++)
                     {
                         for (int ox = -size + 1; ox < size; ox++)
                         {
@@ -806,6 +807,7 @@ int main(int argc, char*args[])
                         {
                             break;
                         }
+                        lastSize = size;
                     }
                 }
                 if (target.x != 0xffff && target.y != 0xffff)
