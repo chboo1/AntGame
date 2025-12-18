@@ -3,6 +3,7 @@
 #include <deque>
 #include <chrono>
 #include <string>
+#include <csignal>
 #include "network.hpp"
 #ifndef MAP_HPP
 #define MAP_HPP
@@ -52,6 +53,7 @@ class Round
     std::chrono::steady_clock::time_point timeLastFrame;
     double deltaTime;
     bool logging = false;
+    volatile static std::sig_atomic_t signalFlag;
 #ifdef ERROR
 #undef ERROR
 #endif

@@ -4,10 +4,23 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <signal.h>
+
+
+void interruptHandler(int a)
+{
+    Round::signalFlag = 1;
+    return;
+}
 
 
 int main(int argc, char*args[])
 {
+    struct sigaction sa;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_handler = interruptHandler;
+    sa.sa_flags = 0;
+    sigaction(SIGINT, &sa, nullptr);
     char prevArg = '\0';
     std::string configFile = "";
     int port = -1;

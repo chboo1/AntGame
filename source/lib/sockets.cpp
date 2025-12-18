@@ -1,6 +1,6 @@
 #include "sockets.hpp"
 #include <iostream>
-#include <csignal>
+#include <signal.h>
 
 
 int Connection::port = ANTNET_DEFAULT_PORT;
@@ -16,7 +16,11 @@ Connection::Connection()
     if (!isInit)
     {
         isInit = true;
-        std::signal(SIGPIPE, SIG_IGN);
+        struct sigaction sigact;
+        sigact.sa_handler = SIG_IGN;
+        sigemptyset(&sigact.sa_mask);
+        sigact.sa_flags = 0;
+        sigaction(SIGPIPE, &sigact, nullptr);
     }
 }
 Connection::~Connection()

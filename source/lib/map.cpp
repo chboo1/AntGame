@@ -13,6 +13,7 @@
 
 
 Round* Round::instance = nullptr;
+volatile std::sig_atomic_t Round::signalFlag = 0;
 
 
 const char ANTGAME_hexarray[] = "0123456789abcdef";
@@ -375,6 +376,19 @@ void Round::step()
             std::exit(1);
             break;
     }
+    if (signalFlag != 0)
+    {
+        switch (signalFlag)
+        {
+            case 1:
+                std::cerr << "Keyboard interrupt!" << std::endl;
+                break;
+            default:
+                std::cerr << "Unknown signal interrupt!" << std::endl;
+                break;
+        }
+        phase = ERROR;
+    }
 }
 
 
@@ -693,7 +707,7 @@ void Nest::step(double delta)
         switch (cmd.cmd)
         {
             case NestCommand::ID::NEWANT:
-                if (foodCount < antTypes[cmd.arg].costMod * RoundSettings::instance->antCost || ants.size() >= 255)
+                if (foodCount < antTypes[cmd.arg].costMod * RoundSettings::instance->antCost || ants.size() >= 254)
                 {
                     cmd.state = NestCommand::State::FAIL;
                     break;
