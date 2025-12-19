@@ -66,6 +66,7 @@ There are a total of three management requests and two management responses that
 |0x09|MAP - The client wishes to know the full map| \- | \- | \- | \- |A map data instance (see later)|
 |0x0a|CHANGELOG - The client wishes to know everything that has changed on the map since their last call in to either MAP or CHANGELOG| \- | \- | \- | \- |A changelog data instance (see later)|
 |0x0b|ME - The client wishes to know its nestID| \- | \- | \- | \- |Nest ID (1 byte)|
+|0x0c|CANCEL - The client wishes to cancel all commands of a given ant| \- | \- | \- | \- |Ant ID (4 bytes)|
 
 ### Response IDs
 

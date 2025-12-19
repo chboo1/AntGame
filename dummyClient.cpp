@@ -5,7 +5,7 @@
 #include <string>
 #include <thread>
 #include <chrono>
-#define DOUT std::cout
+#define DOUT std::cout // This is here because I used this instead of std::cout when I was making a debugging print statement, so that I could find and remove it later.
 
 
 int main(int argc, char*args[])
@@ -528,17 +528,28 @@ int main(int argc, char*args[])
                             case (char)ConnectionManager::ResponseID::CMDFAIL:
                             case (char)ConnectionManager::ResponseID::CMDSUCCESS:{
                                 updateCommands = true;
+                                if (recvData.length() < 4 || responsesLen < 4)
+                                {
+                                    std::cerr << "No data to process CMDFAIL/SUCCESS response!" << std::endl;
+                                    conn.finish();
+                                    map.cleanup();
+                                    return 2;
+                                }
                                 unsigned char serverCmdId = (unsigned char)recvData[2];
                                 unsigned int antPid = 0;
-                                if (recvData.length() >= 4)
-                                {
-                                    antPid = ConnectionManager::getAGNPuint(recvData.substr(3, 4));
-                                }
                                 std::uint64_t serverCmdArg = 0;
                                 bool success = (char)ConnectionManager::ResponseID::CMDSUCCESS == recvData[1];
                                 switch (serverCmdId)
                                 {
                                     case (char)ConnectionManager::RequestID::WALK:
+                                        if (recvData.length() < 15 || responsesLen < 15)
+                                        {
+                                            std::cerr << "No data to process CMDFAIL/SUCCESS WALK response!" << std::endl;
+                                            conn.finish();
+                                            map.cleanup();
+                                            return 2;
+                                        }
+                                        antPid = ConnectionManager::getAGNPuint(recvData.substr(3, 4));
                                         serverCmdArg = ConnectionManager::getAGNPuint(recvData.substr(7, 4));
                                         serverCmdArg <<= 32;
                                         serverCmdArg += ConnectionManager::getAGNPuint(recvData.substr(11, 4));
@@ -546,11 +557,20 @@ int main(int argc, char*args[])
                                         responsesLen -= 15;
                                         break;
                                     case (char)ConnectionManager::RequestID::TINTERACT:
+                                        if (recvData.length() < 11 || responsesLen < 11)
+                                        {
+                                            std::cerr << "No data to process CMDFAIL/SUCCESS TINTERACT response!" << std::endl;
+                                            conn.finish();
+                                            map.cleanup();
+                                            return 2;
+                                        }
+                                        antPid = ConnectionManager::getAGNPuint(recvData.substr(3, 4));
                                         serverCmdArg = ConnectionManager::getAGNPuint(recvData.substr(7, 4));
                                         recvData.erase(0, 11);
                                         responsesLen -= 11;
                                         break;
                                     case (char)ConnectionManager::RequestID::NEWANT:
+                                        // No need for other check because this response uses the minimum possible data (4 bytes)
                                         serverCmdArg = recvData[3];
                                         recvData.erase(0, 4);
                                         responsesLen -= 4;
