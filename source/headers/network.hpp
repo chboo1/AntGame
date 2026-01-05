@@ -84,7 +84,7 @@ class ConnectionManager
     bool playerGreeting(Viewer*);
     bool interpretRequests(Player*);
     public:
-    enum class RequestID : unsigned char {JOIN, NONE=0, PING, BYE, NAME, WALK, SETTINGS, TINTERACT, AINTERACT, NEWANT, MAP, CHANGELOG, ME};
+    enum class RequestID : unsigned char {JOIN, NONE=0, PING, BYE, NAME, WALK, SETTINGS, TINTERACT, AINTERACT, NEWANT, MAP, CHANGELOG, ME, CANCEL};
     enum class ResponseID : unsigned char {OK, DENY, PING, BYE, START, OKDATA, FAILURE, CMDSUCCESS, CMDFAIL};
     ConnectionManager();
     void start();

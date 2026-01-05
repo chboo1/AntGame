@@ -1512,6 +1512,35 @@ bool ConnectionManager::interpretRequests(Player* p)
                                     responses.append("\x07\0", 2);
                                 }
                                 break;}
+                            case (unsigned char)RequestID::CANCEL:{
+                                if (p->messageSizeLeft < 4)
+                                {
+                                    unfinishedReq = id;
+                                    break;
+                                }
+                                if (responses.length() > UINT32_MAX-10)
+                                {
+                                    std::string msg = "";
+                                    msg.append(makeAGNPuint(responses.length()+8));
+                                    msg.append(makeAGNPuint(rq));
+                                    msg.append(responses);
+                                    p->conn->send(msg.c_str(), msg.length());
+                                    rq = 0;
+                                    responses = "";
+                                }
+                                p->messageSizeLeft -= 4;
+                                unsigned int antID = getAGNPuint(data);
+                                data.erase(0, 4);
+                                if (antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[antID] || Round::instance->map->antPermanents[antID]->parent != Round::instance->map->nests[p->nestID])
+                                {
+                                    responses.append("\x0c\x01", 2);
+                                }
+                                else
+                                {
+                                    responses.append("\x0c\0", 2);
+                                    Round::instance->map->antPermanents[antID]->commands.clear();
+                                }
+                                break;}
                             case (unsigned char)RequestID::NEWANT:{
                                 if (p->messageSizeLeft < 1)
                                 {

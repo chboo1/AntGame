@@ -24,9 +24,19 @@ Things I need to do! It's quite complicated in reality, but in short, this is th
 
 - Cross-platform socket implementation (the most basic communication layer allows windows people and mac people and linux people to work together). Done!
 - Server parts
-	+ Communication layer (how the server talks to players and viewers, basically like your keyboard and screen, but over the internet). Almost done, only missing two features.
-	+ Mechanics layer (how the game actually runs). Somehow mostly finished for now.
-	+ Website/Viewing experience (you can type in the address of the server and watch it all burn down! this is making sure that works fine).
+	+ Communication layer (how the server talks to players and viewers, basically like your keyboard and screen, but over the internet). Done!
+	+ Mechanics layer (how the game actually runs). Done!
+	+ Website/Viewing experience (you can type in the address of the server and watch it all burn down! this is making sure that works fine). Done, but not very pretty!
 - Client library (The thing that makes it easy for you. I doubt any of you want to learn how to code sockets.)
 - Fine tuning, playtesting and balancing. (Oh boy. This is when I fix my game after you rip it open with a chainsaw. Thank you, by the way.)
-- [Optional] Map maker program. This is an optional addition that would let one easily create new maps. Of course, it's not strictly needed, but if I have additional time it's definitely happening!
+- \[Optional\] Map maker program. This is an optional addition that would let one easily create new maps. Of course, it's not strictly needed, but if I have additional time it's definitely happening!
+
+- Known specific TODOs:
+	+ Test AINTERACT
+	+ Test CANCEL
+	+ Make all the antcs into unsigned shorts instead of unsigned chars
+	+ Add more ant types
+	+ Add ^C support for windows
+	+ Test deterministic-ness (Oh god no)
+	+ Add more info to the running player list
+	+ Implement nest stats

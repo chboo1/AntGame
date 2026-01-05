@@ -7,20 +7,24 @@
 #include <signal.h>
 
 
+#ifdef ANTNET_UNIX
 void interruptHandler(int a)
 {
     Round::signalFlag = 1;
     return;
 }
+#endif
 
 
 int main(int argc, char*args[])
 {
+#ifdef ANTNET_UNIX
     struct sigaction sa;
     sigemptyset(&sa.sa_mask);
     sa.sa_handler = interruptHandler;
     sa.sa_flags = 0;
     sigaction(SIGINT, &sa, nullptr);
+#endif
     char prevArg = '\0';
     std::string configFile = "";
     int port = -1;
