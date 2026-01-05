@@ -47,12 +47,17 @@ res: resources/mapMaker
 
 
 ifeq ($(OS), Windows_NT)
-module: AntGameModule/AntGame.pyd libs
+module: libs AntGameModule/AntGame.pyd
 
 AntGameModule/AntGame.pyd: source/PythonFiles/AntGamemodule.cpp
 	g++ -fpic -c source\\PythonFiles\\AntGameModule.cpp -IAntGameModule\\include -o out\\AntGamemodule.o
 	g++ -shared out\\AntGamemodule.o -o AntGameModule\\AntGame.pyd -LAntGameModule\\libs -lpython314
 else
+module: libs AntGameModule/AntGame.so
+
+AntGameModule/AntGame.so: source/PythonFiles/AntGamemodule.cpp
+	g++ -fpic -c source/PythonFiles/AntGameModule.cpp -IAntGameModule/include -o out/AntGamemodule.o
+	g++ -shared out/AntGamemodule.o -o AntGameModule/AntGame.so -LAntGameModule/libs -lpython3.14
 endif
 
 

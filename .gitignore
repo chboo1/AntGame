@@ -17,7 +17,7 @@ resources/mapMaker.exe
 dumpLog
 dummyClient
 dummyClient.exe
-AntGameModule/include
-AntGameModule/libs
+AntGameModule/include/*
+AntGameModule/libs/*
 AntGameModule/AntGame.pyd
 AntGameModule/AntGame.so
