@@ -1,5 +1,5 @@
 LIBRARIES := $(wildcard source/lib/*.cpp)
-all: AntGameServer tests res dummyClient
+all: AntGameServer tests res dummyClient module
 	echo All
 
 libs: out/*.o
@@ -46,7 +46,17 @@ out:
 res: resources/mapMaker
 
 
+ifeq ($(OS), Windows_NT)
+module: AntGameModule/AntGame.pyd libs
+
+AntGameModule/AntGame.pyd: source/PythonFiles/AntGamemodule.cpp
+	g++ -fpic -c source\\PythonFiles\\AntGameModule.cpp -IAntGameModule\\include -o out\\AntGamemodule.o
+	g++ -shared out\\AntGamemodule.o -o AntGameModule\\AntGame.pyd -LAntGameModule\\libs -lpython314
+else
+endif
+
+
 resources/mapMaker: resources/mapMaker.cpp
 	g++ resources/mapMaker.cpp -o resources/mapMaker
 
-.PHONY: all libs client res
+.PHONY: all libs client res module
