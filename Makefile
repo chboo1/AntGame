@@ -50,8 +50,8 @@ ifeq ($(OS), Windows_NT)
 module: libs AntGameModule/AntGame.pyd
 
 AntGameModule/AntGame.pyd: source/PythonFiles/AntGamemodule.cpp
-	g++ -fpic -c source\\PythonFiles\\AntGameModule.cpp -IAntGameModule\\include -o out\\AntGamemodule.o
-	g++ -shared out\\AntGamemodule.o -o AntGameModule\\AntGame.pyd -LAntGameModule\\libs -lpython314
+	g++ -fpic -c source\\PythonFiles\\AntGameModule.cpp -IAntGameModule\\include -o AntGameModule\\AntGamemodule.o
+	g++ -shared AntGameModule\\AntGamemodule.o -lws2_32 -o AntGameModule\\AntGame.pyd -LAntGameModule\\libs -lpython314
 else
 module: libs AntGameModule/AntGame.so
 

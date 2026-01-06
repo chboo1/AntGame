@@ -21,3 +21,4 @@ AntGameModule/include/*
 AntGameModule/libs/*
 AntGameModule/AntGame.pyd
 AntGameModule/AntGame.so
+AntGameModule/AntGamemodule.o
