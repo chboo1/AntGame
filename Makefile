@@ -1,35 +1,32 @@
 LIBRARIES := $(wildcard source/lib/*.cpp)
-all: AntGameServer tests res dummyClient module
-	echo All
-
-libs: out/*.o
+all: bin/AntGameServer bin/tests res bin/dummyClient module
 
 
-tests: out/*.o tests.cpp
+bin/tests: out/*.o source/tests.cpp
 ifeq ($(OS),Windows_NT)
-	g++ out/*.o tests.cpp -lws2_32 -Isource/headers -o tests
+	g++ out/*.o source/tests.cpp -lws2_32 -Isource/headers -o bin/tests
 else
-	g++ out/*.o tests.cpp -Isource/headers -o tests
+	g++ out/*.o source/tests.cpp -Isource/headers -o bin/tests
 endif
 
 
-dummyClient: dummyClient.cpp out/*.o
+bin/dummyClient: source/dummyClient.cpp out/*.o
 ifeq ($(OS),Windows_NT)
-	g++ out/*.o dummyClient.cpp -lws2_32 -Isource/headers -o dummyClient
+	g++ out/*.o source/dummyClient.cpp -lws2_32 -Isource/headers -o bin/dummyClient
 else
-	g++ out/*.o dummyClient.cpp -Isource/headers -o dummyClient
+	g++ out/*.o source/dummyClient.cpp -Isource/headers -o bin/dummyClient
 endif
 
 
-AntGameServer: server.cpp out/*.o
+bin/AntGameServer: source/server.cpp out/*.o
 ifeq ($(OS),Windows_NT)
-	g++ out/*.o server.cpp -lws2_32 -Isource/headers -o AntGameServer
+	g++ out/*.o source/server.cpp -lws2_32 -Isource/headers -o bin/AntGameServer
 else
-	g++ out/*.o server.cpp -Isource/headers -o AntGameServer
+	g++ out/*.o source/server.cpp -Isource/headers -o bin/AntGameServer
 endif
 
 
-out/*.o: source/lib/*.cpp out
+out/*.o: source/lib/*.cpp
 ifeq ($(OS),Windows_NT)
 	cd source/lib && g++ -c *.cpp -I../headers
 	move /y source\\lib\\*.o out\\
@@ -39,29 +36,30 @@ else
 endif
 
 
-out:
-	mkdir out
-
-
-res: resources/mapMaker
-
-
 ifeq ($(OS), Windows_NT)
 module: libs AntGameModule/AntGame.pyd
 
-AntGameModule/AntGame.pyd: source/PythonFiles/AntGamemodule.cpp
-	g++ -fpic -c source\\PythonFiles\\AntGameModule.cpp -IAntGameModule\\include -o AntGameModule\\AntGamemodule.o
+AntGameModule/AntGame.pyd: source/AntGamemodule.cpp
+	g++ -fpic -c source\\AntGameModule.cpp -IAntGameModule\\include -o AntGameModule\\AntGamemodule.o
 	g++ -shared AntGameModule\\AntGamemodule.o -lws2_32 -o AntGameModule\\AntGame.pyd -LAntGameModule\\libs -lpython314
 else
 module: libs AntGameModule/AntGame.so
 
-AntGameModule/AntGame.so: source/PythonFiles/AntGamemodule.cpp
-	g++ -fpic -c source/PythonFiles/AntGameModule.cpp -IAntGameModule/include -o out/AntGamemodule.o
-	g++ -shared out/AntGamemodule.o -o AntGameModule/AntGame.so -LAntGameModule/libs -lpython3.14
+AntGameModule/AntGame.so: source/AntGamemodule.cpp
+	g++ -fpic -c source/AntGameModule.cpp -IAntGameModule/include -o AntGameModule/AntGamemodule.o
+	g++ -shared AntGameModule/AntGamemodule.o out/*.o -o AntGameModule/AntGame.so -LAntGameModule/libs -lpython3.14
 endif
 
 
-resources/mapMaker: resources/mapMaker.cpp
-	g++ resources/mapMaker.cpp -o resources/mapMaker
+bin/mapMaker: source/resources/mapMaker.cpp
+	g++ source/resources/mapMaker.cpp -o bin/mapMaker
 
-.PHONY: all libs client res module
+libs: out/*.o
+
+res: bin/mapMaker
+
+server: bin/AntGameServer
+
+client: bin/dummyClient
+
+.PHONY: all libs res module server client

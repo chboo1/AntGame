@@ -294,8 +294,8 @@ bool Connection::send(const char* message, size_t len)
                     break;
                 case EINVAL:
                 case EBADF:
-                    errorState = SYS;
                     finish();
+                    errorState = SYS;
                     break;
 #ifdef EAGAIN
                 case EAGAIN:
@@ -309,8 +309,8 @@ bool Connection::send(const char* message, size_t len)
                     break;
                 case ECONNRESET:
                 case EPIPE:
-                    errorState = CLOSED;
                     finish();
+                    errorState = CLOSED;
                     break;
                 case ENETDOWN:
                 case ENETUNREACH:
@@ -354,8 +354,8 @@ int Connection::receive(char* buf, size_t size)
                     break;
                 case EINVAL:
                 case EBADF:
-                    errorState = SYS;
                     finish();
+                    errorState = SYS;
                     break;
 #ifdef EAGAIN
                 case EAGAIN:
@@ -370,8 +370,8 @@ int Connection::receive(char* buf, size_t size)
                     break;
                 case ECONNRESET:
                 case ENOTCONN:
-                    errorState = CLOSED;
                     finish();
+                    errorState = CLOSED;
                     break;
                 case ENETDOWN:
                 case ENETUNREACH:
@@ -382,6 +382,12 @@ int Connection::receive(char* buf, size_t size)
                     break;
             }
         std::cerr << "Failed while reading! Errno: " << errno << std::endl;
+        return -1;
+    }
+    else if (ret == 0)
+    {
+        finish();
+        errorState = CLOSED;
         return -1;
     }
     return ret;
@@ -402,15 +408,15 @@ std::string Connection::readall()
     if (fl == -1)
     {
         std::cerr << "Failed to get file flags before receiving data! Errno: " << errno << std::endl;
-        errorState = SYS;
         finish();
+        errorState = SYS;
         return "";
     }
     if (fcntl(sockfd, F_SETFL, fl | O_NONBLOCK) == -1)
     {
         std::cerr << "Failed to set file flags before receiving data! Errno: " << errno << std::endl;
-        errorState = SYS;
         finish();
+        errorState = SYS;
         return "";
     }
     std::string ret = "";
@@ -444,13 +450,13 @@ std::string Connection::readall()
                     break;
                 case EINVAL:
                 case EBADF:
-                    errorState = SYS;
                     finish();
+                    errorState = SYS;
                     break;
                 case ECONNRESET:
                 case ENOTCONN:
-                    errorState = CLOSED;
                     finish();
+                    errorState = CLOSED;
                     break;
                 case ENETDOWN:
                 case ENETUNREACH:
@@ -470,6 +476,12 @@ std::string Connection::readall()
                 fcntl(sockfd, F_SETFL, fl);
             }
             return "";
+        }
+        else if (sizeRead == 0)
+        {
+            finish();
+            errorState = CLOSED;
+            break;
         }
         ret.append(buf, sizeRead);
         if (sizeRead < 512) // End of transmission!
@@ -834,6 +846,7 @@ bool Connection::connectTo(std::string nip, int nport)
         if (ret != 0)
         {
             std::cerr << "Failed to initialize winsock! Errno: " << ret << std::endl;
+            errorState = SYS;
             return false;
         }
         started = true;
@@ -1011,6 +1024,7 @@ bool Connection::send(const char* message, size_t len)
             case WSAENETDOWN:
                 errorState = NET;
                 break;
+            case WSAEPIPE:
             case WSAENETRESET:
             case WSAEHOSTUNREACH:
             case WSAECONNABORTED:
@@ -1084,6 +1098,12 @@ int Connection::receive(char* buf, size_t size)
                 break;
         }
         std::cerr << "Failed to receive data from peer! Errno: " << e << std::endl;
+        return -1;
+    }
+    else if (r == 0)
+    {
+        finish();
+        errorState = CLOSED;
         return -1;
     }
     return r;

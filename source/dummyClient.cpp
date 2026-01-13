@@ -77,6 +77,7 @@ int main(int argc, char*args[])
     ideal.clear();
     bool foundStart = false;
     bool gotNameOk = false;
+    unsigned char selfNestID = 0xff;
     for (recvData.clear();!foundStart && conn.connected();recvData = conn.readall())
     {
         if (recvData.length() >= 10)
@@ -100,6 +101,14 @@ int main(int argc, char*args[])
                         return 4;
                     case '\x04': // START
                         foundStart = true;
+                        if (responses.length() < 3)
+                        {
+                            std::cerr << "Too little space for start request!" << std::endl;
+                            conn.finish();
+                            return 2;
+                        }
+                        selfNestID = (unsigned char)responses[2];
+                        responses.erase(2, 1);
                         break;
                     case '\0': // OK
                         if (!gotNameOk)
@@ -131,7 +140,6 @@ int main(int argc, char*args[])
     Map map;
     conn.send("\0\0\0\x0a\0\0\0\x02\x0b\x09", 10);
     bool dead = false;
-    unsigned char selfNestID = 0xff;
     bool hasMap = false;
     std::deque<ConnectionManager::RequestID> reqs;
     std::deque<ConnectionManager::RequestID> cmdIDs;

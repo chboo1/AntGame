@@ -308,11 +308,19 @@ ConnectionManager::ConnectionManager()
 
 void ConnectionManager::start()
 {
+    unsigned char nestID = 0;
     for (Player* p : players)
     {
+        if (p)
+        {
+            p->nestID = nestID;
+        }
         if (isValid(p))
         {
-            p->conn->send("\0\0\0\x0a\0\0\0\x01\0\x04", 10); // START
+            std::string msg;
+            msg.append("\0\0\0\x0b\0\0\0\x01\0\x04", 10);
+            msg.push_back((char)p->nestID);
+            p->conn->send(msg.c_str(), 11); // START
         }
         if (isValid(p)) // Running check again to detect if it changed when sending data
         {
@@ -320,6 +328,7 @@ void ConnectionManager::start()
             {
                 Round::instance->map->nests[p->nestID]->name = p->name;
             }
+            nestID++;
         }
     }
 }
@@ -413,8 +422,13 @@ void ConnectionManager::preclose()
 
 void ConnectionManager::handlePlayers()
 {
+    unsigned char nid = 0;
     for (Player* p : players)
     {
+        if (Round::instance->phase == Round::Phase::WAIT)
+        {
+            p->nestID = nid;
+        }
 	p->toClose = !interpretRequests(p) || p->toClose;
         if (!p->toClose)
         {
@@ -1235,13 +1249,16 @@ bool ConnectionManager::interpretRequests(Player* p)
             else if (id == (unsigned char)RequestID::SETTINGS)
             {
                 std::string msg = "";
-                msg.append(makeAGNPuint(responses.length()+8));
-                msg.append(makeAGNPuint(rq));
-                msg.append(responses);
-                p->conn->send(msg.c_str(), msg.length());
-                msg.clear();
-                rq = 0;
-                responses = "";
+                if (responses.length() > 0)
+                {
+                    msg.append(makeAGNPuint(responses.length()+8));
+                    msg.append(makeAGNPuint(rq));
+                    msg.append(responses);
+                    p->conn->send(msg.c_str(), msg.length());
+                    msg.clear();
+                    responses = "";
+                }
+                rq = UINT_MAX;
                 std::ifstream inf(RoundSettings::instance->configFile, std::ios::in | std::ios::ate);
                 if (!inf.is_open())
                 {
@@ -1251,13 +1268,18 @@ bool ConnectionManager::interpretRequests(Player* p)
                 {
                     unsigned int configFileSize = inf.tellg();
                     inf.seekg(0);
-                    p->conn->send((makeAGNPuint(configFileSize + 14) + "\0\0\0\x01\x05\x05" + makeAGNPuint(configFileSize)).c_str(), 14); // OK DATA
+                    msg = makeAGNPuint(configFileSize + 14);
+                    msg.append("\0\0\0\x01\x05\x05", 6);
+                    msg.append(makeAGNPuint(configFileSize));
+                    p->conn->send(msg.c_str(), msg.length());
                     char buf[4096];
                     unsigned int bytesSent = 0;
                     for(;;)
                     {
-                        if (!inf.get(buf, 4096).fail())
+                        if (!inf.read(buf, 4096).bad())
                         {
+                            std::string temp;
+                            temp.append(buf, inf.gcount());
                             p->conn->send(buf, inf.gcount());
                             bytesSent += inf.gcount();
                         }
@@ -1270,13 +1292,16 @@ bool ConnectionManager::interpretRequests(Player* p)
             else if (id == (unsigned char)RequestID::MAP)
             {
                 std::string msg = "";
-                msg.append(makeAGNPuint(responses.length()+8));
-                msg.append(makeAGNPuint(rq));
-                msg.append(responses);
-                p->conn->send(msg.c_str(), msg.length());
-                msg.clear();
-                rq = 0;
-                responses = "";
+                if (responses.length() > 0)
+                {
+                    msg.append(makeAGNPuint(responses.length()+8));
+                    msg.append(makeAGNPuint(rq));
+                    msg.append(responses);
+                    p->conn->send(msg.c_str(), msg.length());
+                    msg.clear();
+                    responses = "";
+                }
+                rq = UINT_MAX;
                 std::uint64_t antc = 0;
                 for (Nest* n : Round::instance->map->nests) {if (n) {antc += n->ants.size();}}
                 msg.reserve(5UL + (std::uint64_t)Round::instance->map->nests.size() * 13UL + antc * 29UL);
@@ -1576,13 +1601,16 @@ bool ConnectionManager::interpretRequests(Player* p)
                                 break;}
                             case (unsigned char)RequestID::CHANGELOG:{
                                 std::string msg = "";
-                                msg.append(makeAGNPuint(responses.length()+8));
-                                msg.append(makeAGNPuint(rq));
-                                msg.append(responses);
-                                p->conn->send(msg.c_str(), msg.length());
-                                msg.clear();
-                                rq = 0;
-                                responses = "";
+                                if (responses.length() > 0)
+                                {
+                                    msg.append(makeAGNPuint(responses.length()+8));
+                                    msg.append(makeAGNPuint(rq));
+                                    msg.append(responses);
+                                    p->conn->send(msg.c_str(), msg.length());
+                                    msg.clear();
+                                    responses = "";
+                                }
+                                rq = UINT_MAX;
                                 std::uint64_t antc = 0;
                                 for (Nest* n : Round::instance->map->nests) {if (n) {antc += n->ants.size();}}
                                 msg.reserve((std::uint64_t)Round::instance->map->nests.size() * 9UL + antc * 13UL);
@@ -1687,7 +1715,10 @@ bool ConnectionManager::interpretRequests(Player* p)
             }
             rq++;
         }
-        data.erase(0, p->messageSizeLeft);
+        if (data.length() > 0 && p->messageSizeLeft > 0)
+        {
+            data.erase(0, p->messageSizeLeft);
+        }
         p->messageSizeLeft = 0;
         if (rq > 0 && responses.length() > 0)
         {

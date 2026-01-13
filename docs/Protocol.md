@@ -33,7 +33,7 @@ For each message a client sends, the server will make a response either giving t
 	+ Message size ( 4 bytes )
 		An unsigned integer. Dictates the size of the entire message including the message header.
 	+ Response count ( 4 bytes )
-		An unsigned integer. States the amount of requests addressed by this message. If the message's size is not met when this many requests are read, the leftover bytes should be discarded.
+		An unsigned integer. States the amount of requests addressed by this message. If the message's size is not met when this many requests are read, the leftover bytes should be discarded. It constitutes an error if the message size is too low for this many requests to fit in.
 
 For each response:
 - Request identifier echo ( 1 byte )
@@ -76,7 +76,7 @@ There are a total of three management requests and two management responses that
 |0x01|DENY - The server rejects the request.| \- |No|
 |0x02|PING - The server is either answering a ping or making sure the client is alive.| \- |Either|
 |0x03|BYE - The server is either acknowledging a client disconnect or telling the client to leave.| \- |Either|
-|0x04|START - The server is starting the game now!| \- |Yes|
+|0x04|START - The server is starting the game now!| Nest ID (1 byte) |Yes|
 |0x05|OK, DATA - The server accepts the request and is carrying the requested data. The type of data will depend on the request.| Any |No|
 |0x06|FAILURE - The server cannot fulfill the request because of its own error.| \- |No|
 |0x07|CMDSUCCESS - The server is indicating that a command has succeeded|Command data (1 byte cmd ID, 4 bytes ant ID (if ant command), 1-8 bytes argument, depending on cmd ID)|Yes|
