@@ -20,6 +20,8 @@ class Pos
     Pos& operator=(DPos);
     bool operator==(Pos);
     bool operator!=(Pos);
+    Pos operator-(Pos);
+    Pos operator+(Pos);
 };
 
 
@@ -55,7 +57,7 @@ class Round
     bool logging = false;
     volatile static std::sig_atomic_t signalFlag;
 #ifdef ERROR
-#undef ERROR
+#undef ERROR // This is problematic on some windows implementations, apparently
 #endif
     enum Phase {INIT, WAIT, RUNNING, DONE, CLOSED, ERROR};
     Phase phase = INIT;
@@ -78,6 +80,8 @@ class Map
     enum class Tile : unsigned char {EMPTY, WALL, FOOD, NEST, UNKNOWN=255};
     static bool tileWalkable(Tile);
     bool tileWalkable(Pos);
+    static bool tileEdible(Tile);
+    bool tileEdible(Pos);
     std::vector<Nest*> nests;
     std::vector<Ant*> antPermanents;
     Pos size;
@@ -141,7 +145,7 @@ class Ant
     public:
     struct AntCommand
     {
-        enum class ID : unsigned char {MOVE, TINTERACT, AINTERACT};
+        enum class ID : unsigned char {MOVE, TINTERACT, AINTERACT, FOLLOW, CFOLLOW}; // FOLLOW is a utility for clients to use. The server never assigns it or uses it for behaviour
         ID cmd;
         enum class State : unsigned char {ONGOING, SUCCESS, FAIL};
         State state;
@@ -161,5 +165,23 @@ class Ant
     void _init(Nest*, DPos, unsigned char); // Takes a parent ptr, a position and a type
     void giveCommand(AntCommand);
     void step(double);
+
+    struct AntType
+    {
+        double damageMod;
+        double costMod;
+        double healthMod;
+        double speedMod;
+        double capacity;
+        double rangeMod;
+    };
+
+    static const constexpr AntType antTypes[] = {
+        {1.0, 1.0, 1.0, 1.0, 3.0, 1.0}, // 0 -> BASE
+        {2.0, 1.5, 0.5, 1.0, 3.0, 1.0}, // 1 -> GLASS CANON
+        {0.5, 1.5, 2.0, 1.0, 3.0, 1.0} // 2 -> TANK
+    };
+
+    static const unsigned char antTypec = 3;
 };
 #endif

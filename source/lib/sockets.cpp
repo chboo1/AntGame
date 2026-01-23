@@ -251,7 +251,6 @@ bool Connection::connectTo(std::string nip, int nport)
         sockfd = -1;
         return false;
     }
-    std::cout << errno << std::endl;
     port = nport;
     return true;
 }

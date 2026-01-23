@@ -64,10 +64,30 @@ struct AntGameClientObject
     PyObject*onFrame;
     PyObject*onNewAnt;
     PyObject*onGrab;
-    PyObject*onHome;
+    PyObject*onFull;
+    PyObject*onDeliver;
     PyObject*onAttacked;
     PyObject*onHit;
     PyObject*onDeath;
+    PyObject*onWait;
+
+    std::deque<unsigned int> hitAnts;
+    std::deque<unsigned int> newAnts;
+    std::deque<unsigned int> hurtAnts;
+    std::deque<Ant> deadAnts;
+    std::deque<unsigned int> grabAnts;
+    std::deque<unsigned int> deliverAnts;
+    std::deque<unsigned int> fullAnts;
+
+    struct
+    {
+        unsigned int gap;
+        std::uint64_t current;
+        unsigned short count;
+        std::deque<unsigned int> gaps;
+        std::deque<std::uint64_t> currents;
+        std::deque<unsigned short> counts;
+    } nearestFoodData;
 };
 
 
@@ -90,6 +110,11 @@ static void AntGameClient_dealloc(PyObject* op)
 }
 
 
+static Pos AntGameClient_findNearestFood(AntGameClientObject*, Pos, bool(*)(AntGameClientObject*,Pos));
+static bool AntGameClient_isFood(AntGameClientObject*, Pos);
+static bool AntGameClient_isUnclaimedFood(AntGameClientObject*, Pos);
+
+
 static PyObject* AntGameClient_new(PyTypeObject* type, PyObject* args, PyObject *kwds)
 {
     AntGameClientObject* self;
@@ -107,14 +132,35 @@ static PyObject* AntGameClient_new(PyTypeObject* type, PyObject* args, PyObject 
         self->cmdpids.clear();
         self->cmdargs.clear();
         self->recvData = "";
+
         self->onStart = nullptr;
         self->onFrame = nullptr;
         self->onNewAnt = nullptr;
         self->onGrab = nullptr;
-        self->onHome = nullptr;
+        self->onDeliver = nullptr;
         self->onAttacked = nullptr;
         self->onHit = nullptr;
         self->onDeath = nullptr;
+        self->onFull = nullptr;
+        self->onWait = nullptr;
+
+        self->hitAnts.clear();
+        self->newAnts.clear();
+        self->hurtAnts.clear();
+        self->deadAnts.clear();
+        self->grabAnts.clear();
+        self->deliverAnts.clear();
+        self->fullAnts.clear();
+
+        self->nearestFoodData.gap = 5;
+        self->nearestFoodData.current = 4;
+        self->nearestFoodData.count = 2;
+        self->nearestFoodData.gaps.clear();
+        self->nearestFoodData.gaps.push_back(5);
+        self->nearestFoodData.currents.clear();
+        self->nearestFoodData.currents.push_back(5);
+        self->nearestFoodData.counts.clear();
+        self->nearestFoodData.counts.push_back(2);
     }
     return (PyObject*)self;
 }
@@ -207,7 +253,7 @@ static PyObject* AntGameClient_getmapsize(PyObject* op, void* closure)
             posobj->p = self->map->size;
         }
     }
-    Py_INCREF(posobj);
+    Py_XINCREF(posobj);
     return (PyObject*)posobj;
 }
 
@@ -316,37 +362,192 @@ static void AntGameClient_cleanup(AntGameClientObject* self)
 }
 
 
-bool AntGameClient_callGameCallback(PyObject* func)
+static bool AntGameClient_callGameCallback(PyObject* func)
 {
     if (func == nullptr)
     {
         return true;
     }
     PyObject* res = PyObject_CallObject(func, nullptr);
+    if (!res)
+    {
+        return false;
+    }
     Py_XDECREF(res);
-    return res != nullptr;
+    return true;
 }
 
 
-bool AntGameClient_callAntCallback(PyObject* func, PyObject*ant)
+static bool AntGameClient_callAntCallback(PyObject* func, PyObject*ant)
+
 {
     if (func == nullptr)
     {
         return true;
     }
-    PyObject* arglist = Py_BuildValue("(O)", ant);
-    if (arglist == nullptr)
+    PyObject* result = PyObject_CallOneArg(func, ant);
+    if (!result)
     {
         return false;
     }
-    PyObject* result = PyObject_CallObject(func, arglist);
-    Py_XDECREF(arglist);
     Py_XDECREF(result);
-    return result != nullptr;
+    return true;
 }
 
 
-bool AntGameClient_running(AntGameClientObject* self)
+static bool AntGameClient_continueFollow(AntGameClientObject*, unsigned int, unsigned int);
+static bool AntGameClient_continueFollowAttack(AntGameClientObject*, unsigned int, unsigned int);
+
+
+static bool AntGameClient_callAntCallback(AntGameClientObject* self, PyObject*func, Ant* a);
+
+
+static bool AntGameClient_frame(AntGameClientObject*self)
+{
+    if (!AntGameClient_callGameCallback(self->onFrame))
+    {
+        return false;
+    }
+    for (Ant*a : self->map->nests[self->selfNestID]->ants)
+    {
+        if (a->commands.empty())
+        {
+            if (!AntGameClient_callAntCallback(self, self->onWait, a))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            unsigned int followPid = UINT_MAX;
+            auto fcmdit = a->commands.end();
+            bool followAttack = false;
+            for (auto it = a->commands.begin(); it != a->commands.end();)
+            {
+                Ant::AntCommand acmd = *it;
+                if (followPid == UINT_MAX)
+                {
+                    if (acmd.cmd == Ant::AntCommand::ID::FOLLOW)
+                    {
+                        if (acmd.arg == UINT_MAX || !self->map->antPermanents[acmd.arg])
+                        {
+                            it = a->commands.erase(it);
+                            continue;
+                        }
+                        followPid = acmd.arg;
+                        break;
+                    }
+                    else if (acmd.cmd == Ant::AntCommand::ID::CFOLLOW)
+                    {
+                        followPid = acmd.arg;
+                        followAttack = true;
+                        fcmdit = it;
+                    }
+                }
+                else if (fcmdit != a->commands.end())
+                {
+                    if (acmd.cmd == Ant::AntCommand::ID::AINTERACT && acmd.arg == followPid)
+                    {
+                        fcmdit = a->commands.end();
+                        break;
+                    }
+                }
+                it++;
+            }
+            if (fcmdit != a->commands.end())
+            {
+                a->commands.erase(fcmdit);
+            }
+            else if (followPid != UINT_MAX)
+            {
+                std::cout << "Follow continue for " << a->pid << ", " << followPid << std::endl;
+                if (followAttack)
+                {
+                    if (!AntGameClient_continueFollowAttack(self, a->pid, followPid))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    if (!AntGameClient_continueFollow(self, a->pid, followPid))
+                    {
+                        return false;
+                    }
+                }
+                std::cout << "Survival" << std::endl;
+            }
+        }
+    }
+    for (unsigned int pid : self->newAnts)
+    {
+        if (pid < self->map->antPermanents.size() && self->map->antPermanents[pid] && self->map->antPermanents[pid]->parent == self->map->nests[self->selfNestID])
+        {
+            if (!AntGameClient_callAntCallback(self, self->onNewAnt, self->map->antPermanents[pid]))
+            {
+                return false;
+            }
+        }
+    }
+    self->newAnts.clear();
+    for (unsigned int pid : self->hurtAnts)
+    {
+        if (pid < self->map->antPermanents.size() && self->map->antPermanents[pid] && self->map->antPermanents[pid]->parent == self->map->nests[self->selfNestID])
+        {
+            if (!AntGameClient_callAntCallback(self, self->onAttacked, self->map->antPermanents[pid]))
+            {
+                return false;
+            }
+        }
+    }
+    self->hurtAnts.clear();
+    for (unsigned int pid : self->grabAnts)
+    {
+        if (pid < self->map->antPermanents.size() && self->map->antPermanents[pid] && self->map->antPermanents[pid]->parent == self->map->nests[self->selfNestID])
+        {
+            if (!AntGameClient_callAntCallback(self, self->onGrab, self->map->antPermanents[pid]))
+            {
+                return false;
+            }
+        }
+    }
+    self->grabAnts.clear();
+    for (unsigned int pid : self->deliverAnts)
+    {
+        if (pid < self->map->antPermanents.size() && self->map->antPermanents[pid] && self->map->antPermanents[pid]->parent == self->map->nests[self->selfNestID])
+        {
+            if (!AntGameClient_callAntCallback(self, self->onDeliver, self->map->antPermanents[pid]))
+            {
+                std::cout << "OI" << std::endl;
+                return false;
+            }
+        }
+    }
+    self->deliverAnts.clear();
+    for (unsigned int pid : self->fullAnts)
+    {
+        if (pid < self->map->antPermanents.size() && self->map->antPermanents[pid] && self->map->antPermanents[pid]->parent == self->map->nests[self->selfNestID])
+        {
+            if (!AntGameClient_callAntCallback(self, self->onFull, self->map->antPermanents[pid]))
+            {
+                return false;
+            }
+        }
+    }
+    self->fullAnts.clear();
+    for (Ant a : self->deadAnts)
+    {
+        if (!AntGameClient_callAntCallback(self, self->onDeath, &a))
+        {
+            return false;
+        }
+    }
+    self->deadAnts.clear();
+    return true;
+}
+
+
+static bool AntGameClient_running(AntGameClientObject* self)
 {
     if (!self->conn->send("\0\0\0\x09\0\0\0\x01\x0a", 9))
     {
@@ -356,6 +557,445 @@ bool AntGameClient_running(AntGameClientObject* self)
     }
     self->reqIDs.push_back(ConnectionManager::RequestID::CHANGELOG);
     std::chrono::steady_clock::time_point lastServerResponse = std::chrono::steady_clock::now();
+    bool dead = false;
+    bool needData = self->recvData.length() < 8;
+    unsigned int responsesLen = 0;
+    unsigned int dataIndex = 0;
+    unsigned int rc = 0;
+    bool triggerFrame = false;
+    while (!dead) // Aren't we all
+    {
+        if (!self->conn->connected())
+        {
+            std::cerr << "Kicked out by server for some reason." << std::endl;
+            return false;
+        }
+        if (needData)
+        {
+            std::string dat = AntGameClient_readallWait(self->conn);
+            if (dat.empty())
+            {
+                std::cerr << "Kicked out by server or ran into an error while reading." << std::endl;
+                return false;
+            }
+            self->recvData.append(dat);
+            needData = false;
+        }
+        if (responsesLen == 0)
+        {
+            if (self->recvData.length() >= 4)
+            {
+                responsesLen = ConnectionManager::getAGNPuint(self->recvData.substr(0, 4));
+                dataIndex = 4;
+                if (responsesLen < 8)
+                {
+                    PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in request length. Is this a modified server?");
+                    return false;
+                }
+            }
+            else
+            {
+                needData = true;
+            }
+        }
+        if (rc == 0  && responsesLen != 0)
+        {
+            if (self->recvData.length() >= 8)
+            {
+                rc = ConnectionManager::getAGNPuint(self->recvData.substr(4, 4));
+                dataIndex = 8;
+            }
+            else
+            {
+                needData = true;
+            }
+        }
+        if (self->recvData.length() < responsesLen)
+        {
+            needData = true;
+        }
+        else
+        {
+            while (rc > 0 && responsesLen - dataIndex >= 2)
+            {
+                rc--;
+                ConnectionManager::RequestID reqResp = (ConnectionManager::RequestID)(unsigned char)self->recvData[dataIndex];
+                ConnectionManager::ResponseID respType = (ConnectionManager::ResponseID)(unsigned char)self->recvData[dataIndex+1];
+                dataIndex += 2;
+                bool corresponds = reqResp == ConnectionManager::RequestID::NONE;
+                for (auto it = self->reqIDs.begin(); it != self->reqIDs.end() && !corresponds; it++)
+                {
+                    if (*it == reqResp)
+                    {
+                        self->reqIDs.erase(it);
+                        corresponds = true;
+                        break;
+                    }
+                }
+                if (!corresponds)
+                {
+                    std::cout << (unsigned int)reqResp << std::endl;
+                    PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol (replying to nonexistent request). Is this a modified server?");
+                    return false;
+                }
+                switch (reqResp)
+                {
+                    case ConnectionManager::RequestID::NONE:
+                        switch (respType)
+                        {
+                            case ConnectionManager::ResponseID::PING:
+                                if (!self->conn->send("\0\0\0\x09\0\0\0\x01\x01", 9))
+                                {
+                                    AntGameClient_handleConnErrors(self->conn);
+                                    std::cerr << "Could not respond to a server ping request." << std::endl;
+                                    return false;
+                                }
+                                break;
+                            case ConnectionManager::ResponseID::BYE:
+                                self->conn->send("\0\0\0\x09\0\0\0\x01\x02", 0);
+                                dead = true;
+                                break;
+                            case ConnectionManager::ResponseID::CMDFAIL:
+                            case ConnectionManager::ResponseID::CMDSUCCESS:{
+                                if (responsesLen - dataIndex < 1)
+                                {
+                                    PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in CMDSUCCESS/FAIL (no space). Is this a modified server?");
+                                    return false;
+                                }
+                                unsigned char serverCmdId = (unsigned char)self->recvData[dataIndex];
+                                unsigned int antPid = UINT_MAX;
+                                std::uint64_t serverCmdArg = 0;
+                                dataIndex++;
+                                switch (serverCmdId)
+                                {
+                                    case (char)ConnectionManager::RequestID::TINTERACT:
+                                        if (responsesLen - dataIndex < 8)
+                                        {
+                                            PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in CMDSUCCESS/FAIL to tinter (no space). Is this a modified server?");
+                                            return false;
+                                        }
+                                        antPid = ConnectionManager::getAGNPuint(self->recvData.substr(dataIndex, 4));
+                                        serverCmdArg = ConnectionManager::getAGNPuint(self->recvData.substr(dataIndex+4, 4));
+                                        dataIndex += 8;
+                                        break;
+                                    case (char)ConnectionManager::RequestID::AINTERACT:
+                                        if (responsesLen - dataIndex < 8)
+                                        {
+                                            PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in CMDSUCCESS/FAIL to ainter (no space). Is this a modified server?");
+                                            return false;
+                                        }
+                                        antPid = ConnectionManager::getAGNPuint(self->recvData.substr(dataIndex, 4));
+                                        serverCmdArg = ConnectionManager::getAGNPuint(self->recvData.substr(dataIndex+4, 4));
+                                        dataIndex += 8;
+                                        break;
+                                    case (char)ConnectionManager::RequestID::WALK:
+                                        if (responsesLen - dataIndex < 12)
+                                        {
+                                            PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in CMDSUCCESS/FAIL to walk (no space). Is this a modified server?");
+                                            return false;
+                                        }
+                                        antPid = ConnectionManager::getAGNPuint(self->recvData.substr(dataIndex, 4));
+                                        serverCmdArg = ConnectionManager::getAGNPuint(self->recvData.substr(dataIndex+4, 4));
+                                        serverCmdArg <<= 32;
+                                        serverCmdArg += ConnectionManager::getAGNPuint(self->recvData.substr(dataIndex+8, 4));
+                                        dataIndex += 12;
+                                        break;
+                                    case (char)ConnectionManager::RequestID::NEWANT:
+                                        if (responsesLen - dataIndex < 1)
+                                        {
+                                            PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in CMDSUCCESS/FAIL to newant (no space). Is this a modified server?");
+                                            return false;
+                                        }
+                                        serverCmdArg = (std::uint64_t)(unsigned char)self->recvData[dataIndex];
+                                        dataIndex += 1;
+                                        break;
+                                    default:
+                                        PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in CMDSUCCESS/FAIL (invalid ID). Is this a modified server?");
+                                        return false;
+                                }
+                                auto IDit = self->cmdIDs.begin();
+                                auto pidit = self->cmdpids.begin();
+                                auto argit = self->cmdargs.begin();
+                                bool valid = false;
+                                while (IDit != self->cmdIDs.end())
+                                {
+                                    if ((*IDit) == (ConnectionManager::RequestID)serverCmdId && (*pidit) == antPid && (*argit) == serverCmdArg)
+                                    {
+                                        self->cmdIDs.erase(IDit);
+                                        self->cmdpids.erase(pidit);
+                                        self->cmdargs.erase(argit);
+                                        valid = true;
+                                        break;
+                                    }
+                                    IDit++;
+                                    pidit++;
+                                    argit++;
+                                }
+                                if (!valid)
+                                {
+                                    PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in CMDSUCCESS/FAIL (invalid previous req data). Is this a modified server?");
+                                    return false;
+                                }
+                                if (serverCmdId == (char)ConnectionManager::RequestID::TINTERACT && respType == ConnectionManager::ResponseID::CMDSUCCESS)
+                                {
+                                    unsigned short x = (serverCmdArg>>16) & 0xffff;
+                                    unsigned short y = serverCmdArg & 0xffff;
+                                    if (x == self->map->nests[self->selfNestID]->p.x && y == self->map->nests[self->selfNestID]->p.y)
+                                    {
+                                        self->deliverAnts.push_back(antPid);
+                                    }
+                                }
+                                if (serverCmdId == (char)ConnectionManager::RequestID::AINTERACT && respType == ConnectionManager::ResponseID::CMDSUCCESS)
+                                {
+                                    if (self->map->antPermanents.size() > serverCmdArg && (!self->map->antPermanents[serverCmdArg] || self->map->antPermanents[serverCmdArg]->parent != self->map->nests[self->selfNestID]))
+                                    {
+                                        self->hitAnts.push_back(antPid);
+                                    }
+                                }
+                                if (antPid != UINT_MAX)
+                                {
+                                    if (self->map->antPermanents.size() > antPid && self->map->antPermanents[antPid])
+                                    {
+                                        for (auto it = self->map->antPermanents[antPid]->commands.begin();it!=self->map->antPermanents[antPid]->commands.end();)
+                                        {
+                                            if ((((*it).cmd == Ant::AntCommand::ID::MOVE && serverCmdId == (unsigned char)ConnectionManager::RequestID::WALK) || ((*it).cmd == Ant::AntCommand::ID::TINTERACT && serverCmdId == (unsigned char)ConnectionManager::RequestID::TINTERACT) || ((*it).cmd == Ant::AntCommand::ID::AINTERACT && serverCmdId == (unsigned char)ConnectionManager::RequestID::AINTERACT)) && serverCmdArg == (*it).arg)
+                                            {
+                                                it = self->map->antPermanents[antPid]->commands.erase(it);
+                                            }
+                                            else
+                                            {
+                                                it++;
+                                            }
+                                        }
+                                    }
+                                }
+                                break;}
+                            default:
+                                PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol (invalid unsolicited response). Is this a modified server?");
+                                return false;
+                        }
+                        break;
+                    case ConnectionManager::RequestID::CANCEL:
+                    case ConnectionManager::RequestID::NEWANT:
+                    case ConnectionManager::RequestID::WALK:
+                    case ConnectionManager::RequestID::TINTERACT:
+                    case ConnectionManager::RequestID::AINTERACT:
+                        if (respType != ConnectionManager::ResponseID::OK && respType != ConnectionManager::ResponseID::DENY)
+                        {
+                            PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in response to a command (invalid resp ID). Is this a modified server?");
+                            return false;
+                        }
+                        break;
+                    case ConnectionManager::RequestID::CHANGELOG:{
+                        if (!self->conn->send("\0\0\0\x09\0\0\0\x01\x0a", 9))
+                        {
+                            AntGameClient_handleConnErrors(self->conn);
+                            std::cerr << "Could not send a changelog request." << std::endl;
+                            return false;
+                        }
+                        self->reqIDs.push_back(ConnectionManager::RequestID::CHANGELOG);
+                        if (respType == ConnectionManager::ResponseID::DENY) // why tho :(
+                        {
+                            break;
+                        }
+                        else if (respType != ConnectionManager::ResponseID::OKDATA && respType != ConnectionManager::ResponseID::OK)
+                        {
+                            PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in response to changelog request (invalid resp ID). Is this a modified server?");
+                            return false;
+                        }
+                        unsigned char nid = 0;
+                        std::vector<bool> antExists;
+                        antExists.resize(self->map->antPermanents.size(), false);
+                        Ant* a = new Ant;
+                        for (Nest*n : self->map->nests)
+                        {
+                            if (responsesLen - dataIndex < 9)
+                            {
+                                PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in response to changelog request (no space for nest). Is this a modified server?");
+                                return false;
+                            }
+                            if (n)
+                            {
+                                if (self->recvData.compare(dataIndex, 8, "\xff\xff\xff\xff\xff\xff\xff\xff") == 0 || self->recvData[dataIndex+8] == '\xff')
+                                {
+                                    n->salute();
+                                    delete n;
+                                    self->map->nests[nid] = nullptr;
+                                    nid++;
+                                    dataIndex += 9;
+                                    continue;
+                                }
+                                n->ants.clear();
+                                n->foodCount = ConnectionManager::getAGNPdoublestr(self->recvData.substr(dataIndex, 8));
+                                unsigned char antc = (unsigned char)self->recvData[dataIndex+8];
+                                if (responsesLen - dataIndex < antc*13)
+                                {
+                                    PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in response to changelog request (no space for ants). Is this a modified server?");
+                                    return false;
+                                }
+                                n->ants.reserve(antc);
+                                dataIndex += 9;
+                                for (unsigned char i = 0; i < antc; i++)
+                                {
+                                    a->p.x = ConnectionManager::getAGNPshortdouble(ConnectionManager::getAGNPuint(self->recvData.substr(dataIndex, 4)));
+                                    a->p.y = ConnectionManager::getAGNPshortdouble(ConnectionManager::getAGNPuint(self->recvData.substr(dataIndex+4, 4)));
+                                    a->type = self->recvData[dataIndex+8];
+                                    a->pid = ConnectionManager::getAGNPuint(self->recvData.substr(dataIndex+9, 4));
+                                    dataIndex += 13;
+                                    if (a->pid >= self->map->antPermanents.size())
+                                    {
+                                        self->map->antPermanents.resize(a->pid + 1, nullptr);
+                                        antExists.resize(a->pid + 1, false);
+                                        a->_init(n, a->p, a->type);
+                                        self->map->antPermanents[a->pid] = a;
+					antExists[a->pid] = true;
+					n->ants.push_back(a);
+                                        if (n == self->map->nests[self->selfNestID])
+                                        {
+                                            self->newAnts.push_back(a->pid);
+                                        }
+					a = new Ant;
+                                    }
+                                    else
+                                    {
+					unsigned int thisPid = a->pid;
+					if (!self->map->antPermanents[a->pid])
+                                        {
+                                            a->_init(n, a->p, a->type);
+                                            self->map->antPermanents[a->pid] = a;
+                                            if (n == self->map->nests[self->selfNestID])
+                                            {
+                                                self->newAnts.push_back(a->pid);
+                                            }
+					    a = new Ant;
+                                        }
+                                        else
+                                        {
+                                            self->map->antPermanents[a->pid]->p = a->p;
+                                            self->map->antPermanents[a->pid]->type = a->type;
+                                        }
+                                        antExists[thisPid] = true;
+                                        n->ants.push_back(self->map->antPermanents[thisPid]);
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                dataIndex += 9;
+                            }
+                            nid++;
+                        }
+                        delete a;
+                        a = nullptr;
+                        for (unsigned int i = 0; i < self->map->antPermanents.size(); i++)
+                        {
+                            if (!antExists[i])
+                            {
+                                if (self->map->antPermanents[i])
+                                {
+                                    if (self->map->antPermanents[i]->parent == self->map->nests[self->selfNestID])
+                                    {
+                                        self->deadAnts.push_back(*self->map->antPermanents[i]);
+                                    }
+                                    delete self->map->antPermanents[i];
+                                    self->map->antPermanents[i] = nullptr;
+                                }
+                            }
+                        }
+                        if (responsesLen - dataIndex < 4)
+                        {
+                            PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in response to changelog request (no space for map event count). Is this a modified server?");
+                            return false;
+                        }
+                        unsigned int mec = ConnectionManager::getAGNPuint(self->recvData.substr(dataIndex, 4));
+                        dataIndex += 4;
+                        if (mec > 858993459 || responsesLen - dataIndex < mec * 5)
+                        {
+                            PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in response to changelog request (no space for map events). Is this a modified server?");
+                            return false;
+                        }
+                        for (unsigned int i = 0; i < mec; i++)
+                        {
+                            unsigned short x = ConnectionManager::getAGNPushort(self->recvData.substr(dataIndex, 2));
+                            unsigned short y = ConnectionManager::getAGNPushort(self->recvData.substr(dataIndex+2, 2));
+                            unsigned char tile = (unsigned char)self->recvData[dataIndex+4];
+                            if (x >= self->map->size.x || y >= self->map->size.y)
+                            {
+                                PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in response to changelog request (map event oob). Is this a modified server?");
+                                return false;
+                            }
+                            self->map->map[x+y*self->map->size.x] = tile;
+                            dataIndex += 5;
+                        }
+                        if (responsesLen - dataIndex < 4)
+                        {
+                            PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in response to changelog request (no space for ant event count). Is this a modified server?");
+                            return false;
+                        }
+                        unsigned int aec = ConnectionManager::getAGNPuint(self->recvData.substr(dataIndex, 4));
+                        dataIndex += 4;
+                        if (aec > 214748364 || responsesLen - dataIndex < aec * 20)
+                        {
+                            PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in response to changelog request (no space for ant events). Is this a modified server?");
+                            return false;
+                        }
+                        for (unsigned int i = 0; i < aec; i++)
+                        {
+			    unsigned int pid = ConnectionManager::getAGNPuint(self->recvData.substr(dataIndex, 4));
+                            double health = ConnectionManager::getAGNPdoublestr(self->recvData.substr(dataIndex+4, 8));
+                            double food = ConnectionManager::getAGNPdoublestr(self->recvData.substr(dataIndex+12, 8));
+                            if (self->map->antPermanents.size() > pid && self->map->antPermanents[pid])
+                            {
+
+                                if (self->map->antPermanents[pid]->parent == self->map->nests[self->selfNestID])
+                                {
+                                    Ant* ant = self->map->antPermanents[pid];
+                                    if (ant->foodCarry < food)
+                                    {
+                                        if (Ant::antTypes[ant->type].capacity * RoundSettings::instance->capacityMod - food < 0.001)
+                                        {
+                                            self->fullAnts.push_back(ant->pid);
+                                        }
+                                        self->grabAnts.push_back(ant->pid);
+                                    }
+                                    if (ant->health > health)
+                                    {
+                                        self->hurtAnts.push_back(ant->pid);
+                                    }
+                                }
+                                self->map->antPermanents[pid]->foodCarry = food;
+                                self->map->antPermanents[pid]->health = health;
+                            }
+                            dataIndex += 20;
+                        }
+                        triggerFrame = true;
+                        break;}
+                    default:
+                        PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol (wrong request ID echo). Is this a modified server?");
+                        return false;
+                }
+            }
+            if (rc > 0)
+            {
+                PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol (not enough space for all responses). Is this a modified server?");
+                return false;
+            }
+            else
+            {
+                self->recvData.erase(0, responsesLen);
+                responsesLen = 0;
+                dataIndex = 0;
+            }
+            if (triggerFrame)
+            {
+                triggerFrame = false;
+                if (!AntGameClient_frame(self))
+                {
+                    return false;
+                }
+            }
+        }
+    }
     return true;
 }
 
@@ -576,6 +1216,7 @@ static PyObject* AntGameClient_start(PyObject* op, PyObject* args, PyObject* key
                                 AntGameClient_cleanup(self);
                                 return nullptr;
                              }
+                             break;
                         }
                         else if (respType != ConnectionManager::ResponseID::OKDATA && respType != ConnectionManager::ResponseID::OK)
                         {
@@ -621,6 +1262,7 @@ static PyObject* AntGameClient_start(PyObject* op, PyObject* args, PyObject* key
                                 AntGameClient_cleanup(self);
                                 return nullptr;
                              }
+                             break;
                         }
                         else if (respType != ConnectionManager::ResponseID::OK)
                         {
@@ -633,13 +1275,14 @@ static PyObject* AntGameClient_start(PyObject* op, PyObject* args, PyObject* key
                     case ConnectionManager::RequestID::MAP:{
                         if (respType == ConnectionManager::ResponseID::DENY)
                         {
-                             if (!self->conn->send("\0\0\0\x09\0\0\0\x01\x09", 9))
-                             {
+                            if (!self->conn->send("\0\0\0\x09\0\0\0\x01\x09", 9))
+                            {
                                 AntGameClient_handleConnErrors(self->conn);
                                 std::cerr << "Could not send a map request." << std::endl;
                                 AntGameClient_cleanup(self);
                                 return nullptr;
-                             }
+                            }
+                            break;
                         }
                         else if (respType != ConnectionManager::ResponseID::OKDATA && respType != ConnectionManager::ResponseID::OK)
                         {
@@ -755,7 +1398,7 @@ static PyObject* AntGameClient_start(PyObject* op, PyObject* args, PyObject* key
         AntGameClient_cleanup(self);
         return nullptr;
     }
-    if (AntGameClient_callGameCallback(self->onStart))
+    if (!AntGameClient_callGameCallback(self->onStart))
     {
         AntGameClient_cleanup(self);
         return nullptr;
@@ -772,7 +1415,7 @@ static PyObject* AntGameClient_start(PyObject* op, PyObject* args, PyObject* key
 }
 
 
-PyObject* AntGameClientObject::*callbackGetter(std::string str)
+static PyObject* AntGameClientObject::*callbackGetter(std::string str)
 {
     for (int i = 0; i < str.length(); i++)
     {
@@ -806,9 +1449,9 @@ PyObject* AntGameClientObject::*callbackGetter(std::string str)
     {
         return &AntGameClientObject::onGrab;
     }
-    else if (str == "ant_home")
+    else if (str == "ant_deliver")
     {
-        return &AntGameClientObject::onHome;
+        return &AntGameClientObject::onDeliver;
     }
     else if (str == "ant_hurt")
     {
@@ -822,6 +1465,14 @@ PyObject* AntGameClientObject::*callbackGetter(std::string str)
     {
         return &AntGameClientObject::onDeath;
     }
+    else if (str == "ant_full")
+    {
+        return &AntGameClientObject::onFull;
+    }
+    else if (str == "ant_wait")
+    {
+        return &AntGameClientObject::onWait;
+    }
     else
     {
         PyErr_SetString(PyExc_ValueError, "The callback type should be one of the defined types! Check the docs for all available types.");
@@ -830,7 +1481,7 @@ PyObject* AntGameClientObject::*callbackGetter(std::string str)
 }
 
 
-PyObject* AntGameClient_setCallback(PyObject*op, PyObject*args)
+static PyObject* AntGameClient_setCallback(PyObject*op, PyObject*args)
 {
     AntGameClientObject* self = (AntGameClientObject*)op;
     PyObject* func;
@@ -855,9 +1506,77 @@ PyObject* AntGameClient_setCallback(PyObject*op, PyObject*args)
 }
 
 
+static PyObject* AntGameClient_newAnt(PyObject*op, PyObject*args);
+
+
+static PyObject* AntGameClient_nearestFood(PyObject* op, PyObject* args)
+{
+    AntGameClientObject* self = (AntGameClientObject*)op;
+    Pos p;
+    if (!self->map)
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot get nearest food to nest if game is not started!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    else
+    {
+        p = self->map->nests[self->selfNestID]->p;
+    }
+    Pos t = AntGameClient_findNearestFood(self, p, AntGameClient_isFood);
+    if (t.x == USHRT_MAX || t.y == USHRT_MAX)
+    {
+        Py_RETURN_NONE;
+    }
+    PosObject*posobj = (PosObject*)PosType.tp_alloc(&PosType, 0);
+    if (posobj)
+    {
+        posobj->p = t;
+    }
+    Py_XINCREF(posobj);
+    return (PyObject*)posobj;
+}
+
+
+static PyObject* AntGameClient_nearestUnclaimedFood(PyObject* op, PyObject* args)
+{
+    AntGameClientObject* self = (AntGameClientObject*)op;
+    Pos p;
+    if (!self->map)
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot get nearest food to nest if game is not started!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    else
+    {
+        p = self->map->nests[self->selfNestID]->p;
+    }
+    Pos t = AntGameClient_findNearestFood(self, p, AntGameClient_isUnclaimedFood);
+    if (t.x == USHRT_MAX || t.y == USHRT_MAX)
+    {
+        Py_RETURN_NONE;
+    }
+    PosObject*posobj = (PosObject*)PosType.tp_alloc(&PosType, 0);
+    if (posobj)
+    {
+        posobj->p = t;
+    }
+    Py_XINCREF(posobj);
+    return (PyObject*)posobj;
+}
+
+
 static PyMethodDef AntGameClient_methods[] = {
     {"connect", (PyCFunction)(void(*)(void))AntGameClient_start, METH_VARARGS | METH_KEYWORDS, "Connect to a server and start running."},
     {"setCallback", AntGameClient_setCallback, METH_VARARGS, "Set a callback function."},
+    {"newAnt", AntGameClient_newAnt, METH_VARARGS, "Create a new ant."},
+    {"nearestFood", AntGameClient_nearestFood, METH_NOARGS, "Find closest food to nest."},
+    {"nearestFreeFood", AntGameClient_nearestUnclaimedFood, METH_NOARGS, "Find closest food to nest that is not targeted by another ant."},
     {nullptr, nullptr, 0, nullptr}
 };
 
@@ -882,7 +1601,7 @@ struct NestObject
 {
     PyObject_HEAD
     ;
-    PyObject*root;
+    AntGameClientObject*root;
     unsigned char nestID;
 };
 
@@ -911,7 +1630,7 @@ static PyObject* Nest_getpos(PyObject* op, void* closure)
             }
         }
     }
-    Py_INCREF(posobj);
+    Py_XINCREF(posobj);
     return (PyObject*)posobj;
 }
 
@@ -956,11 +1675,199 @@ static PyTypeObject NestType = {
 };
 
 
+struct AntTypeObject
+{
+    PyObject_HEAD
+    ;
+    unsigned char type;
+};
+
+
+static PyObject* AntType_getmaxfood(PyObject*op, void*closure)
+{
+    AntTypeObject* self = (AntTypeObject*)op;
+    if (!RoundSettings::instance)
+    {
+        PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
+        return nullptr;
+    }
+    return PyFloat_FromDouble(Ant::antTypes[self->type].capacity * RoundSettings::instance->capacityMod);
+}
+
+
+static PyObject* AntType_getmaxhealth(PyObject*op, void*closure)
+{
+    AntTypeObject* self = (AntTypeObject*)op;
+    if (!RoundSettings::instance)
+    {
+        PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
+        return nullptr;
+    }
+    return PyFloat_FromDouble(Ant::antTypes[self->type].healthMod * RoundSettings::instance->antHealth);
+}
+
+
+static PyObject* AntType_getdamage(PyObject*op, void*closure)
+{
+    AntTypeObject* self = (AntTypeObject*)op;
+    if (!RoundSettings::instance)
+    {
+        PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
+        return nullptr;
+    }
+    return PyFloat_FromDouble(Ant::antTypes[self->type].damageMod * RoundSettings::instance->attackDamage);
+}
+
+
+static PyObject* AntType_getcost(PyObject*op, void*closure)
+{
+    AntTypeObject* self = (AntTypeObject*)op;
+    if (!RoundSettings::instance)
+    {
+        PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
+        return nullptr;
+    }
+    return PyFloat_FromDouble(Ant::antTypes[self->type].costMod * RoundSettings::instance->antCost);
+}
+
+
+static PyObject* AntType_getspeed(PyObject*op, void*closure)
+{
+    AntTypeObject* self = (AntTypeObject*)op;
+    if (!RoundSettings::instance)
+    {
+        PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
+        return nullptr;
+    }
+    return PyFloat_FromDouble(Ant::antTypes[self->type].speedMod * RoundSettings::instance->movementSpeed);
+}
+
+
+static PyObject* AntType_getattackrange(PyObject*op, void*closure)
+{
+    AntTypeObject* self = (AntTypeObject*)op;
+    if (!RoundSettings::instance)
+    {
+        PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
+        return nullptr;
+    }
+    return PyFloat_FromDouble(Ant::antTypes[self->type].rangeMod * RoundSettings::instance->attackRange);
+}
+
+
+static PyObject* AntType_getpickuprange(PyObject*op, void*closure)
+{
+    AntTypeObject* self = (AntTypeObject*)op;
+    if (!RoundSettings::instance)
+    {
+        PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
+        return nullptr;
+    }
+    return PyFloat_FromDouble(Ant::antTypes[self->type].rangeMod * RoundSettings::instance->pickupRange);
+}
+
+
+static PyGetSetDef AntType_getsetters[] = {
+    {"maxfood", AntType_getmaxfood, nullptr, "ant type's maximum food", nullptr},
+    {"maxhealth", AntType_getmaxhealth, nullptr, "ant type's maximum health", nullptr},
+    {"damage", AntType_getdamage, nullptr, "ant type's damage", nullptr},
+    {"cost", AntType_getcost, nullptr, "ant type's cost", nullptr},
+    {"speed", AntType_getspeed, nullptr, "ant type's speed", nullptr},
+    {"attackrange", AntType_getattackrange, nullptr, "ant type's attack range", nullptr},
+    {"pickuprange", AntType_getpickuprange, nullptr, "ant type's pickup range", nullptr},
+    {nullptr}
+};
+
+
+static PyObject* AntType_new(PyTypeObject* type, PyObject* args, PyObject *kwds)
+{
+    AntTypeObject* self;
+    self = (AntTypeObject*)type->tp_alloc(type, 0);
+    if (!self)
+    {
+        return nullptr;
+    }
+    long val = 0xff;
+    unsigned char t = 0;
+    if (PyArg_ParseTuple(args, "|l", &val))
+    {
+        if (val >= 0 && val < 0xff)
+        {
+            t = val;
+        }
+        self->type = t;
+        return (PyObject*)self;
+    }
+    return nullptr;
+}
+
+
+static PyObject* AntType_richcompare(PyObject* op, PyObject* other, int operation)
+{
+    AntTypeObject* self = (AntTypeObject*)op;
+    unsigned char thisval = self->type;
+    unsigned char otherval;
+    if (PyObject_TypeCheck(other, Py_TYPE(op)))
+    {
+        AntTypeObject* otherO = (AntTypeObject*)other;
+        otherval = otherO->type;
+    }
+    else if (PyLong_Check(other))
+    {
+        unsigned long otherv = PyLong_AsUnsignedLong(other);
+        if (otherv >= 0xff)
+        {
+            otherval = 0xff;
+        }
+        else
+        {
+            otherval = otherv;
+        }
+    }
+    else
+    {
+        PyErr_SetString(PyExc_TypeError, "Cannot compare an ant type with something that is neither a number or an ant type!");
+        return nullptr;
+    }
+    if (operation == Py_EQ)
+    {
+        if (otherval == thisval)
+        {
+            Py_RETURN_TRUE;
+        }
+        Py_RETURN_FALSE;
+    }
+    else if (operation == Py_NE)
+    {
+        if (otherval == thisval)
+        {
+            Py_RETURN_FALSE;
+        }
+        Py_RETURN_TRUE;
+    }
+    Py_RETURN_NOTIMPLEMENTED;
+}
+
+
+static PyTypeObject AntTypeType = {
+    .ob_base = PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "AntGame.AntType",
+    .tp_basicsize = sizeof(AntTypeObject),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    // TODO
+    .tp_doc = PyDoc_STR("Placerholder doc string"),
+    .tp_getset = AntType_getsetters,
+    .tp_richcompare = AntType_richcompare,
+    .tp_new = AntType_new,
+};
+
+
 struct AntObject
 {
     PyObject_HEAD
     ;
-    PyObject*root;
+    AntGameClientObject*root;
     unsigned int antID;
     Ant echo;
 };
@@ -969,32 +1876,36 @@ struct AntObject
 static PyObject* Ant_gettype(PyObject* op, void*closure)
 {
     AntObject* self = (AntObject*)op;
+    AntTypeObject*typeobj = (AntTypeObject*)AntTypeType.tp_alloc(&AntTypeType, 0);
     if (!self->root)
     {
         if (self->echo.type != 0xff)
         {
-            return PyLong_FromUnsignedLong((unsigned long)self->echo.type);
+            typeobj->type = self->echo.type;
         }
     }
-    if (self->antID == 0xffffffff)
+    else if (self->antID == 0xffffffff)
     {
         if (PyErr_WarnEx(PyExc_RuntimeWarning, "This ant is dead! Accessing its type may cause issues.", 2) < 0)
         {
             return nullptr;
         }
-        return PyLong_FromLong(0);
+        typeobj->type = 0;
     }
-    AntGameClientObject* root = (AntGameClientObject*)self->root;
-    if (!root->map || root->map->antPermanents.size() <= self->antID || !root->map->antPermanents[self->antID])
+    else
     {
-        if (PyErr_WarnEx(PyExc_RuntimeWarning, "This ant is dead! Accessing its type may cause issues.", 2) < 0)
+        AntGameClientObject* root = (AntGameClientObject*)self->root;
+        if (!root->map || root->map->antPermanents.size() <= self->antID || !root->map->antPermanents[self->antID])
         {
-            return nullptr;
+            if (PyErr_WarnEx(PyExc_RuntimeWarning, "This ant is dead! Accessing its type may cause issues.", 2) < 0)
+            {
+                return nullptr;
+            }
+            typeobj->type = 0;
         }
-        return PyLong_FromLong(0);
+        typeobj->type = root->map->antPermanents[self->antID]->type;
     }
-    // TODO better
-    return PyLong_FromUnsignedLong((unsigned long)root->map->antPermanents[self->antID]->type);
+    return (PyObject*)typeobj;
 }
 
 
@@ -1061,7 +1972,7 @@ static PyObject* Ant_getpos(PyObject* op, void* closure)
 {
     AntObject*self = (AntObject*)op;
     PosObject*posobj = (PosObject*)PosType.tp_alloc(&PosType, 0);
-    Py_INCREF(posobj);
+    Py_XINCREF(posobj);
     if (posobj)
     {
         if (!self->root)
@@ -1087,7 +1998,7 @@ static PyObject* Ant_getpos(PyObject* op, void* closure)
             posobj->p.y = 0;
             if (PyErr_WarnEx(PyExc_RuntimeWarning, "This ant is dead! Accessing its position may cause issues.", 2) < 0)
             {
-                Py_DECREF(posobj);
+                Py_XDECREF(posobj);
                 return nullptr;
             }
         }
@@ -1099,7 +2010,7 @@ static PyObject* Ant_getpos(PyObject* op, void* closure)
                 posobj->p.x = 0; posobj->p.y = 0;
                 if (PyErr_WarnEx(PyExc_RuntimeWarning, "This ant is dead! Accessing its position may cause issues.", 2) < 0)
                 {
-                    Py_DECREF(posobj);
+                    Py_XDECREF(posobj);
                     return nullptr;
                 }
             }
@@ -1113,13 +2024,891 @@ static PyObject* Ant_getpos(PyObject* op, void* closure)
 }
 
 
+static PyObject* Ant_getisFriend(PyObject* op, void*closure)
+{
+    AntObject*self = (AntObject*)op;
+    if (!self->root || !self->root->map || self->antID == UINT_MAX)
+    {
+        if (self->echo.type != 0xff && self->echo.parent == self->root->map->nests[self->root->selfNestID])
+        {
+            Py_RETURN_TRUE;
+        }
+    }
+    if (self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID] || self->root->map->antPermanents[self->antID]->parent != self->root->map->nests[self->root->selfNestID])
+    {
+        Py_RETURN_FALSE;
+    }
+    Py_RETURN_TRUE;
+}
+
+
+static PyObject* Ant_getisEnemy(PyObject* op, void*closure)
+{
+    AntObject*self = (AntObject*)op;
+    if (!self->root || !self->root->map || self->antID == UINT_MAX)
+    {
+        if (self->echo.type != 0xff && self->echo.parent != self->root->map->nests[self->root->selfNestID])
+        {
+            Py_RETURN_TRUE;
+        }
+    }
+    if (self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID] || self->root->map->antPermanents[self->antID]->parent == self->root->map->nests[self->root->selfNestID])
+    {
+        Py_RETURN_FALSE;
+    }
+    Py_RETURN_TRUE;
+}
+
+
+static PyObject* Ant_getindex(PyObject* op, void*closure)
+{
+    AntObject*self = (AntObject*)op;
+    if (self)
+    {
+        return PyLong_FromUnsignedLong((unsigned long)self->antID);
+    }
+    return PyLong_FromUnsignedLong((unsigned long)UINT_MAX);
+}
+
+
+static PyObject* Ant_getisFull(PyObject* op, void*closure)
+{
+    AntObject*self = (AntObject*)op;
+    if (!self->root || !self->root->map || self->antID == UINT_MAX)
+    {
+        if (self->echo.type != 0xff && Ant::antTypes[self->echo.type].capacity * RoundSettings::instance->capacityMod - self->echo.foodCarry < 0.001)
+        {
+            Py_RETURN_TRUE;
+        }
+        Py_RETURN_FALSE;
+    }
+    if (self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        Py_RETURN_FALSE;
+    }
+    if (Ant::antTypes[self->root->map->antPermanents[self->antID]->type].capacity * RoundSettings::instance->capacityMod - self->root->map->antPermanents[self->antID]->foodCarry >= 0.001)
+    {
+        Py_RETURN_FALSE;
+    }
+    Py_RETURN_TRUE;
+}
+
+
 static PyGetSetDef Ant_getsetters[] = {
     {"food", Ant_getfood, nullptr, "ant's food", nullptr},
     {"health", Ant_gethealth, nullptr, "ant's health", nullptr},
     {"type", Ant_gettype, nullptr, "ant's type", nullptr},
     {"pos", Ant_getpos, nullptr, "ant's position", nullptr},
+    {"isFriend", Ant_getisFriend, nullptr, "whether ant is a friend", nullptr},
+    {"isEnemy", Ant_getisEnemy, nullptr, "whether ant is an enemy", nullptr},
+    {"isFull", Ant_getisFull, nullptr, "whether ant has max food", nullptr},
+    {"index", Ant_getindex, nullptr, "ant's index in ants list", nullptr},
     {nullptr}
 };
+
+
+static bool Ant_edible(AntObject* self, PosObject* target, bool far)
+{
+    if (!self || !target || !self->root || !self->root->map || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID] || self->root->map->antPermanents[self->antID]->parent != self->root->map->nests[self->root->selfNestID])
+    {
+        return false;
+    }
+    Pos t = target->p;
+    Ant*a = self->root->map->antPermanents[self->antID];
+    if (((DPos)t-a->p).magnitude() > RoundSettings::instance->pickupRange * Ant::antTypes[a->type].rangeMod && !far)
+    {
+        return false;
+    }
+    if (self->root->map->tileEdible(t))
+    {
+        if (Ant::antTypes[a->type].capacity * RoundSettings::instance->capacityMod < a->foodCarry + RoundSettings::instance->foodYield)
+        {
+            return false;
+        }
+    }
+    else if ((*self->root->map)[t] != Map::Tile::NEST || self->root->map->nests[self->root->selfNestID]->p == t || Ant::antTypes[a->type].capacity * RoundSettings::instance->capacityMod < a->foodCarry + RoundSettings::instance->foodTheftYield)
+    {
+        return false;
+    }
+    return true;
+}
+
+
+static bool Ant_attackable(AntObject*self, AntObject* target, bool far)
+{
+    if (!self || !target || !self->root || self->root != target->root || !self->root->map || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID] || self->root->map->antPermanents[self->antID]->parent != self->root->map->nests[self->root->selfNestID] || self->root->map->antPermanents.size() <= target->antID || !self->root->map->antPermanents[target->antID] || self->root->map->antPermanents[target->antID]->parent == self->root->map->nests[self->root->selfNestID])
+    {
+        return false;
+    }
+    Ant*a = self->root->map->antPermanents[self->antID];
+    Ant*t = self->root->map->antPermanents[target->antID];
+    if ((a->p-t->p).magnitude() > RoundSettings::instance->attackRange * Ant::antTypes[a->type].rangeMod && !far)
+    {
+        return false;
+    }
+    return true;
+}
+
+
+static bool Ant_sendGoto(AntObject*self, DPos t) // TODO this will be the pathing alg
+{
+    Ant* a = self->root->map->antPermanents[self->antID];
+    if (!a->commands.empty())
+    {
+        std::string msg;
+        msg.append("\0\0\0\x1a\0\0\0\x02\x0c", 9);
+        msg.append(ConnectionManager::makeAGNPuint(self->antID));
+        msg.push_back('\x04');
+        msg.append(ConnectionManager::makeAGNPuint(self->antID));
+        msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t.x)));
+        msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t.y)));
+        if (!self->root->conn->send(msg.c_str(), msg.length()))
+        {
+            AntGameClient_handleConnErrors(self->root->conn);
+            return false;
+        }
+        self->root->reqIDs.push_back(ConnectionManager::RequestID::CANCEL);
+        self->root->reqIDs.push_back(ConnectionManager::RequestID::WALK);
+        self->root->cmdIDs.push_back(ConnectionManager::RequestID::WALK);
+        self->root->cmdpids.push_back(self->antID);
+        self->root->cmdargs.push_back(((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.y));
+        a->commands.clear();
+        Ant::AntCommand acmd;
+        acmd.cmd = Ant::AntCommand::ID::MOVE;
+        acmd.state = Ant::AntCommand::State::ONGOING;
+        acmd.arg = ((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.y);
+        a->commands.push_back(acmd);
+    }
+    else
+    {
+        std::string msg;
+        msg.append("\0\0\0\x15\0\0\0\x01\x04", 9);
+        msg.append(ConnectionManager::makeAGNPuint(self->antID));
+        msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t.x)));
+        msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t.y)));
+        if (!self->root->conn->send(msg.c_str(), msg.length()))
+        {
+            AntGameClient_handleConnErrors(self->root->conn);
+            return false;
+        }
+        self->root->reqIDs.push_back(ConnectionManager::RequestID::WALK);
+        self->root->cmdIDs.push_back(ConnectionManager::RequestID::WALK);
+        self->root->cmdpids.push_back(self->antID);
+        self->root->cmdargs.push_back(((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.y));
+        Ant::AntCommand acmd;
+        acmd.cmd = Ant::AntCommand::ID::MOVE;
+        acmd.state = Ant::AntCommand::State::ONGOING;
+        acmd.arg = ((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.y);
+        a->commands.push_back(acmd);
+    }
+    return true;
+}
+
+
+static bool Ant_sendTake(AntObject*self, Pos t)
+{
+    Ant* a = self->root->map->antPermanents[self->antID];
+    std::string msg;
+    msg.append("\0\0\0\x11\0\0\0\x01\x06", 9);
+    msg.append(ConnectionManager::makeAGNPuint(self->antID));
+    msg.append(ConnectionManager::makeAGNPushort(t.x));
+    msg.append(ConnectionManager::makeAGNPushort(t.y));
+    if (!self->root->conn->send(msg.c_str(), msg.length()))
+    {
+        AntGameClient_handleConnErrors(self->root->conn);
+        return false;
+    }
+    self->root->reqIDs.push_back(ConnectionManager::RequestID::TINTERACT);
+    self->root->cmdIDs.push_back(ConnectionManager::RequestID::TINTERACT);
+    self->root->cmdpids.push_back(self->antID);
+    self->root->cmdargs.push_back(((unsigned int)t.x<<16) + (unsigned int)t.y);
+    Ant::AntCommand acmd;
+    acmd.cmd = Ant::AntCommand::ID::TINTERACT;
+    acmd.state = Ant::AntCommand::State::ONGOING;
+    acmd.arg = ((unsigned int)t.x<<16)+(unsigned int)t.y;
+    a->commands.push_back(acmd);
+    return true;
+}
+
+
+static bool Ant_sendAttack(AntObject*self, AntObject*target)
+{
+    Ant* a = self->root->map->antPermanents[self->antID];
+    std::string msg;
+    msg.append("\0\0\0\x11\0\0\0\x01\x07", 9);
+    msg.append(ConnectionManager::makeAGNPuint(self->antID));
+    msg.append(ConnectionManager::makeAGNPuint(target->antID));
+    if (!self->root->conn->send(msg.c_str(), msg.length()))
+    {
+        AntGameClient_handleConnErrors(self->root->conn);
+        return false;
+    }
+    self->root->reqIDs.push_back(ConnectionManager::RequestID::AINTERACT);
+    self->root->cmdIDs.push_back(ConnectionManager::RequestID::AINTERACT);
+    self->root->cmdpids.push_back(self->antID);
+    self->root->cmdargs.push_back(target->antID);
+    Ant::AntCommand acmd;
+    acmd.cmd = Ant::AntCommand::ID::AINTERACT;
+    acmd.state = Ant::AntCommand::State::ONGOING;
+    acmd.arg = target->antID;
+    a->commands.push_back(acmd);
+    return true;
+}
+
+
+static bool Ant_sendFollow(AntObject*self, DPos t, AntObject*target) // TODO this will be the pathing alg
+{
+    Ant* a = self->root->map->antPermanents[self->antID];
+    if (!a->commands.empty())
+    {
+        std::string msg;
+        msg.append("\0\0\0\x1a\0\0\0\x02\x0c", 9);
+        msg.append(ConnectionManager::makeAGNPuint(self->antID));
+        msg.push_back('\x04');
+        msg.append(ConnectionManager::makeAGNPuint(self->antID));
+        msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t.x)));
+        msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t.y)));
+        if (!self->root->conn->send(msg.c_str(), msg.length()))
+        {
+            AntGameClient_handleConnErrors(self->root->conn);
+            return false;
+        }
+        self->root->reqIDs.push_back(ConnectionManager::RequestID::CANCEL);
+        self->root->reqIDs.push_back(ConnectionManager::RequestID::WALK);
+        self->root->cmdIDs.push_back(ConnectionManager::RequestID::WALK);
+        self->root->cmdpids.push_back(self->antID);
+        self->root->cmdargs.push_back(((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.y));
+        a->commands.clear();
+        Ant::AntCommand acmd;
+        acmd.cmd = Ant::AntCommand::ID::FOLLOW;
+        acmd.state = Ant::AntCommand::State::ONGOING;
+        acmd.arg = target->antID;
+        a->commands.push_back(acmd);
+    }
+    else
+    {
+        std::string msg;
+        msg.append("\0\0\0\x15\0\0\0\x01\x04", 9);
+        msg.append(ConnectionManager::makeAGNPuint(self->antID));
+        msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t.x)));
+        msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t.y)));
+        if (!self->root->conn->send(msg.c_str(), msg.length()))
+        {
+            AntGameClient_handleConnErrors(self->root->conn);
+            return false;
+        }
+        self->root->reqIDs.push_back(ConnectionManager::RequestID::WALK);
+        self->root->cmdIDs.push_back(ConnectionManager::RequestID::WALK);
+        self->root->cmdpids.push_back(self->antID);
+        self->root->cmdargs.push_back(((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.y));
+        Ant::AntCommand acmd;
+        acmd.cmd = Ant::AntCommand::ID::FOLLOW;
+        acmd.state = Ant::AntCommand::State::ONGOING;
+        acmd.arg = target->antID;
+        a->commands.push_back(acmd);
+    }
+    return true;
+}
+
+
+static bool AntGameClient_continueFollow(AntGameClientObject* agc, unsigned int self, unsigned int other)
+{
+    Ant* a = agc->map->antPermanents[self];
+    Ant* t = agc->map->antPermanents[other];
+    std::string msg;
+    msg.append("\0\0\0\x1a\0\0\0\x02\x0c", 9);
+    msg.append(ConnectionManager::makeAGNPuint(self));
+    msg.push_back('\x04');
+    msg.append(ConnectionManager::makeAGNPuint(self));
+    msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t->p.x)));
+    msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t->p.y)));
+    if (!agc->conn->send(msg.c_str(), msg.length()))
+    {
+        AntGameClient_handleConnErrors(agc->conn);
+        return false;
+    }
+    agc->reqIDs.push_back(ConnectionManager::RequestID::CANCEL);
+    agc->reqIDs.push_back(ConnectionManager::RequestID::WALK);
+    agc->cmdIDs.push_back(ConnectionManager::RequestID::WALK);
+    agc->cmdpids.push_back(self);
+    agc->cmdargs.push_back(((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t->p.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t->p.y));
+    a->commands.clear();
+    Ant::AntCommand acmd;
+    acmd.cmd = Ant::AntCommand::ID::CFOLLOW;
+    acmd.state = Ant::AntCommand::State::ONGOING;
+    acmd.arg = other;
+    a->commands.push_back(acmd);
+    return true;
+}
+
+
+static bool AntGameClient_continueFollowAttack(AntGameClientObject* agc, unsigned int self, unsigned int other)
+{
+    Ant* a = agc->map->antPermanents[self];
+    Ant* t = agc->map->antPermanents[other];
+    std::string msg;
+    msg.append("\0\0\0\x2b\0\0\0\x03\x0c", 9);
+    msg.append(ConnectionManager::makeAGNPuint(self));
+    msg.push_back('\x04');
+    msg.append(ConnectionManager::makeAGNPuint(self));
+    msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t->p.x)));
+    msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t->p.y)));
+    msg.push_back('\x07');
+    msg.append(ConnectionManager::makeAGNPuint(self));
+    msg.append(ConnectionManager::makeAGNPuint(other));
+    if (!agc->conn->send(msg.c_str(), msg.length()))
+    {
+        AntGameClient_handleConnErrors(agc->conn);
+        return false;
+    }
+    agc->reqIDs.push_back(ConnectionManager::RequestID::CANCEL);
+    agc->reqIDs.push_back(ConnectionManager::RequestID::WALK);
+    agc->cmdIDs.push_back(ConnectionManager::RequestID::WALK);
+    agc->cmdpids.push_back(self);
+    agc->cmdargs.push_back(((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t->p.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t->p.y));
+    a->commands.clear();
+    Ant::AntCommand acmd;
+    acmd.cmd = Ant::AntCommand::ID::CFOLLOW;
+    acmd.state = Ant::AntCommand::State::ONGOING;
+    acmd.arg = other;
+    a->commands.push_back(acmd);
+
+    agc->reqIDs.push_back(ConnectionManager::RequestID::AINTERACT);
+    agc->cmdIDs.push_back(ConnectionManager::RequestID::AINTERACT);
+    agc->cmdpids.push_back(self);
+    agc->cmdargs.push_back(other);
+    acmd.cmd = Ant::AntCommand::ID::AINTERACT;
+    acmd.state = Ant::AntCommand::State::ONGOING;
+    acmd.arg = other;
+    a->commands.push_back(acmd);
+    return true;
+}
+
+
+static bool Ant_sendFollowAttack(AntObject*self, DPos t, AntObject*target) // TODO this will be the pathing alg
+{
+    Ant* a = self->root->map->antPermanents[self->antID];
+    if (!a->commands.empty())
+    {
+        std::string msg;
+        msg.append("\0\0\0\x1a\0\0\0\x02\x0c", 9);
+        msg.append(ConnectionManager::makeAGNPuint(self->antID));
+        msg.push_back('\x04');
+        msg.append(ConnectionManager::makeAGNPuint(self->antID));
+        msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t.x)));
+        msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t.y)));
+        if (!self->root->conn->send(msg.c_str(), msg.length()))
+        {
+            AntGameClient_handleConnErrors(self->root->conn);
+            return false;
+        }
+        self->root->reqIDs.push_back(ConnectionManager::RequestID::CANCEL);
+        self->root->reqIDs.push_back(ConnectionManager::RequestID::WALK);
+        self->root->cmdIDs.push_back(ConnectionManager::RequestID::WALK);
+        self->root->cmdpids.push_back(self->antID);
+        self->root->cmdargs.push_back(((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.y));
+        a->commands.clear();
+        Ant::AntCommand acmd;
+        acmd.cmd = Ant::AntCommand::ID::CFOLLOW;
+        acmd.state = Ant::AntCommand::State::ONGOING;
+        acmd.arg = target->antID;
+        a->commands.push_back(acmd);
+    }
+    else
+    {
+        std::string msg;
+        msg.append("\0\0\0\x15\0\0\0\x01\x04", 9);
+        msg.append(ConnectionManager::makeAGNPuint(self->antID));
+        msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t.x)));
+        msg.append(ConnectionManager::makeAGNPuint(ConnectionManager::makeAGNPshortdouble(t.y)));
+        if (!self->root->conn->send(msg.c_str(), msg.length()))
+        {
+            AntGameClient_handleConnErrors(self->root->conn);
+            return false;
+        }
+        self->root->reqIDs.push_back(ConnectionManager::RequestID::WALK);
+        self->root->cmdIDs.push_back(ConnectionManager::RequestID::WALK);
+        self->root->cmdpids.push_back(self->antID);
+        self->root->cmdargs.push_back(((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.y));
+        Ant::AntCommand acmd;
+        acmd.cmd = Ant::AntCommand::ID::CFOLLOW;
+        acmd.state = Ant::AntCommand::State::ONGOING;
+        acmd.arg = target->antID;
+        a->commands.push_back(acmd);
+    }
+    if (!Ant_sendAttack(self, target))
+    {
+        return false;
+    }
+    return true;
+}
+
+
+static PyObject* AntGameClient_newAnt(PyObject*op, PyObject*args)
+{
+    AntGameClientObject* self = (AntGameClientObject*)op;
+    if (!self->map)
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot make a new ant when the game has not started!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    if (self->map->nests[self->selfNestID]->ants.size() >= 255)
+    {
+        Py_RETURN_NONE;
+    }
+    PyObject* arg = nullptr;
+    if (PyArg_ParseTuple(args, "O:newAnt", &arg))
+    {
+        if (!arg)
+        {
+            PyErr_SetString(PyExc_TypeError, "newAnt function needs an argument");
+            return nullptr;
+        }
+        if (PyObject_TypeCheck(arg, &AntTypeType))
+        {
+            AntTypeObject* ato = (AntTypeObject*)arg;
+            std::string msg;
+            msg.append("\0\0\0\x0a\0\0\0\x01\x08", 9);
+            msg.push_back((char)ato->type);
+            if (!self->conn->send(msg.c_str(), msg.length()))
+            {
+                AntGameClient_handleConnErrors(self->conn);
+                return nullptr;
+            }
+            self->reqIDs.push_back(ConnectionManager::RequestID::NEWANT);
+            self->cmdIDs.push_back(ConnectionManager::RequestID::NEWANT);
+            self->cmdpids.push_back(UINT_MAX);
+            self->cmdargs.push_back(ato->type);
+        }
+        else if (PyLong_Check(arg))
+        {
+            unsigned long val = PyLong_AsUnsignedLong(arg);
+            if (PyErr_Occurred())
+            {
+                PyErr_Clear();
+                PyErr_SetString(PyExc_ValueError, "newAnt function's argument must be a valid ant type!");
+                return nullptr;
+            }
+            if (val >= Ant::antTypec)
+            {
+                PyErr_SetString(PyExc_ValueError, "newAnt function's argument must be a valid ant type!");
+                return nullptr;
+            }
+            std::string msg;
+            msg.append("\0\0\0\x0a\0\0\0\x01\x08", 9);
+            msg.push_back((char)(unsigned char)val);
+            if (!self->conn->send(msg.c_str(), msg.length()))
+            {
+                AntGameClient_handleConnErrors(self->conn);
+                return nullptr;
+            }
+            self->reqIDs.push_back(ConnectionManager::RequestID::NEWANT);
+            self->cmdIDs.push_back(ConnectionManager::RequestID::NEWANT);
+            self->cmdpids.push_back(UINT_MAX);
+            self->cmdargs.push_back((char)(unsigned char)val);
+        }
+        else
+        {
+            PyErr_SetString(PyExc_TypeError, "newAnt function's argument must be a valid ant type!");
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    return nullptr;
+}
+
+
+static PyObject* Ant_move(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    if (!self->root || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot move a dead ant!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    else if (self->root->map->antPermanents[self->antID]->parent != self->root->map->nests[self->root->selfNestID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot move an ant that isn't ours!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    PyObject* arg = nullptr;
+    if (PyArg_ParseTuple(args, "O:move", &arg))
+    {
+        if (!arg)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the move function must be a position!");
+            return nullptr;
+        }
+        if (arg == Py_None)
+        {
+            Py_RETURN_NONE;
+        }
+        if (PyObject_TypeCheck(arg, &PosType) == 0)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the move function must be a position!");
+            return nullptr;
+        }
+        PosObject* posobj = (PosObject*)arg;
+        DPos p = posobj->p;
+        if (p.x > self->root->map->size.x || p.y > self->root->map->size.y)
+        {
+            if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot move an ant to a spot outside the map!", 2) < 0)
+            {
+                return nullptr;
+            }
+            Py_RETURN_NONE;
+        }
+        if (!Ant_sendGoto(self, p))
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    return nullptr;
+}
+
+
+static PyObject* Ant_take(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    if (!self->root || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot take with a dead ant!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    else if (self->root->map->antPermanents[self->antID]->parent != self->root->map->nests[self->root->selfNestID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot take with an ant that isn't ours!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    PyObject* arg = nullptr;
+    if (PyArg_ParseTuple(args, "O:take", &arg))
+    {
+        if (!arg)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the take function must be a position!");
+            return nullptr;
+        }
+        if (arg == Py_None)
+        {
+            Py_RETURN_NONE;
+        }
+        if (PyObject_TypeCheck(arg, &PosType) == 0)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the take function must be a position!");
+            return nullptr;
+        }
+        PosObject* posobj = (PosObject*)arg;
+        DPos p = posobj->p;
+        if (p.x > self->root->map->size.x || p.y > self->root->map->size.y)
+        {
+            if(PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot take food on a spot outside the map!", 2) < 0)
+            {
+                return nullptr;
+            }
+            Py_RETURN_NONE;
+        }
+        Pos t = p;
+        if (!Ant_edible(self, posobj, false))
+        {
+            Py_RETURN_NONE; // Silently exiting is better than a warning because food getting nabbed by another ant is not uncommon
+        }
+        if (!Ant_sendTake(self, t))
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    return nullptr;
+}
+
+
+static PyObject* Ant_attack(PyObject* op, PyObject* args);
+
+
+static PyObject* Ant_goTake(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    if (!self->root || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot move a dead ant!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    else if (self->root->map->antPermanents[self->antID]->parent != self->root->map->nests[self->root->selfNestID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot move an ant that isn't ours!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    PyObject* arg = nullptr;
+    if (PyArg_ParseTuple(args, "O:move", &arg))
+    {
+        if (!arg)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the goTake function must be a position!");
+            return nullptr;
+        }
+        if (arg == Py_None)
+        {
+            Py_RETURN_NONE;
+        }
+        if (PyObject_TypeCheck(arg, &PosType) == 0)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the goTake function must be a position!");
+            return nullptr;
+        }
+        PosObject* posobj = (PosObject*)arg;
+        DPos p = posobj->p;
+        if (p.x >= self->root->map->size.x || p.y >= self->root->map->size.y)
+        {
+            if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot move an ant to a spot outside the map!", 2) < 0)
+            {
+                return nullptr;
+            }
+            Py_RETURN_NONE;
+        }
+        if (!Ant_edible(self, posobj, true))
+        {
+            Py_RETURN_NONE;
+        }
+        Pos t = posobj->p;
+        bool found = false;
+        if (!Ant_sendGoto(self, p))
+        {
+            return nullptr;
+        }
+        if (!Ant_sendTake(self, t))
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    return nullptr;
+}
+
+
+static PyObject* Ant_deliver(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    if (!self->root || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot move a dead ant!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    else if (self->root->map->antPermanents[self->antID]->parent != self->root->map->nests[self->root->selfNestID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot move an ant that isn't ours!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    Pos t = self->root->map->nests[self->root->selfNestID]->p;
+    if (!Ant_sendTake(self, t))
+    {
+        return nullptr;
+    }
+    Py_RETURN_NONE;
+}
+
+
+static PyObject* Ant_goDeliver(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    if (!self->root || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot move a dead ant!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    else if (self->root->map->antPermanents[self->antID]->parent != self->root->map->nests[self->root->selfNestID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot move an ant that isn't ours!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    Pos t = self->root->map->nests[self->root->selfNestID]->p;
+    DPos p = t;
+    if (!Ant_sendGoto(self, p))
+    {
+        return nullptr;
+    }
+    if (!Ant_sendTake(self, t))
+    {
+        return nullptr;
+    }
+    Py_RETURN_NONE;
+}
+
+
+
+static PyObject* Ant_goAttack(PyObject* op, PyObject* args);
+
+
+static PyObject* Ant_follow(PyObject* op, PyObject* args);
+static PyObject* Ant_followAttack(PyObject* op, PyObject* args);
+
+
+static PyObject* Ant_nearestFood(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    Pos p;
+    if (!self->root || !self->root->map || self->antID == UINT_MAX || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (self->echo.type != 0xff && self->echo.p.x != USHRT_MAX && self->echo.p.y != USHRT_MAX)
+        {
+            p = self->echo.p;
+        }
+        else
+        {
+            if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot get nearest food to dead ant!", 2) < 0)
+            {
+                return nullptr;
+            }
+            Py_RETURN_NONE;
+        }
+    }
+    else
+    {
+        p = self->root->map->antPermanents[self->antID]->p;
+    }
+    Pos t = AntGameClient_findNearestFood(self->root, p, AntGameClient_isFood);
+    if (t.x == USHRT_MAX || t.y == USHRT_MAX)
+    {
+        Py_RETURN_NONE;
+    }
+    PosObject*posobj = (PosObject*)PosType.tp_alloc(&PosType, 0);
+    if (posobj)
+    {
+        posobj->p = t;
+    }
+    Py_XINCREF(posobj);
+    return (PyObject*)posobj;
+}
+
+
+static PyObject* Ant_nearestFreeFood(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    Pos p;
+    if (!self->root || !self->root->map || self->antID == UINT_MAX || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (self->echo.type != 0xff && self->echo.p.x != USHRT_MAX && self->echo.p.y != USHRT_MAX)
+        {
+            p = self->echo.p;
+        }
+        else
+        {
+            if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot get nearest food to dead ant!", 2) < 0)
+            {
+                return nullptr;
+            }
+            Py_RETURN_NONE;
+        }
+    }
+    else
+    {
+        p = self->root->map->antPermanents[self->antID]->p;
+    }
+    Pos t = AntGameClient_findNearestFood(self->root, p, AntGameClient_isUnclaimedFood);
+    if (t.x == USHRT_MAX || t.y == USHRT_MAX)
+    {
+        Py_RETURN_NONE;
+    }
+    PosObject*posobj = (PosObject*)PosType.tp_alloc(&PosType, 0);
+    if (posobj)
+    {
+        posobj->p = t;
+    }
+    Py_XINCREF(posobj);
+    return (PyObject*)posobj;
+}
+
+
+static PyObject* Ant_nearestAnt(PyObject* op, PyObject* args);
+static PyObject* Ant_nearestFriend(PyObject* op, PyObject* args);
+static PyObject* Ant_nearestEnemy(PyObject* op, PyObject* args);
+
+
+static PyMethodDef Ant_methods[] = {
+    {"move", Ant_move, METH_VARARGS, "Move an ant."},
+    {"take", Ant_take, METH_VARARGS, "Take food."},
+    {"goTake", Ant_goTake, METH_VARARGS, "Move an ant to take food."},
+    {"attack", Ant_attack, METH_VARARGS, "Attack an enemy."},
+    {"goAttack", Ant_goAttack, METH_VARARGS, "Move an ant to attack an enemy."},
+    {"follow", Ant_follow, METH_VARARGS, "Follow an ant."},
+    {"followAttack", Ant_followAttack, METH_VARARGS, "Follow an ant and attack it."},
+    {"deliver", Ant_deliver, METH_NOARGS, "Deliver all food."},
+    {"goDeliver", Ant_goDeliver, METH_NOARGS, "Walk to deliver all food."},
+    {"nearestFood", Ant_nearestFood, METH_NOARGS, "Find the position of the closest food."},
+    {"nearestFreeFood", Ant_nearestFreeFood, METH_NOARGS, "Find the position of the closest food no friend is targeting."},
+    {"nearestEnemy", Ant_nearestEnemy, METH_NOARGS, "Find the nearest enemy."},
+    {"nearestFriend", Ant_nearestFriend, METH_NOARGS, "Find the nearest friend."},
+    {"nearestAnt", Ant_nearestAnt, METH_NOARGS, "Find the nearest ant."},
+    {nullptr, nullptr, 0, nullptr}
+};
+
+
+static PyObject* Ant_richcompare(PyObject* op, PyObject* other, int operation)
+{
+    AntObject* self = (AntObject*)op;
+    unsigned int thisval = self->antID;
+    unsigned int otherval;
+    if (PyObject_TypeCheck(other, Py_TYPE(op)))
+    {
+        AntObject* otherO = (AntObject*)other;
+        otherval = otherO->antID;
+    }
+    else
+    {
+        PyErr_SetString(PyExc_TypeError, "Cannot compare an ant with something that isn't an ant!");
+        return nullptr;
+    }
+    if (operation == Py_EQ)
+    {
+        if (otherval == thisval)
+        {
+            Py_RETURN_TRUE;
+        }
+        Py_RETURN_FALSE;
+    }
+    else if (operation == Py_NE)
+    {
+        if (otherval == thisval)
+        {
+            Py_RETURN_FALSE;
+        }
+        Py_RETURN_TRUE;
+    }
+    Py_RETURN_NOTIMPLEMENTED;
+}
 
 
 static PyTypeObject AntType = {
@@ -1130,9 +2919,383 @@ static PyTypeObject AntType = {
     .tp_flags = Py_TPFLAGS_DEFAULT,
     //TODO
     .tp_doc = PyDoc_STR("Placeholder doc string"),
+    .tp_methods = Ant_methods,
     .tp_getset = Ant_getsetters,
     .tp_new = PyType_GenericNew,
+    .tp_richcompare = Ant_richcompare,
 };
+
+
+static PyObject* Ant_attack(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    if (!self->root || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot attack with a dead ant!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    else if (self->root->map->antPermanents[self->antID]->parent != self->root->map->nests[self->root->selfNestID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot attack with an ant that isn't ours!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    PyObject* arg = nullptr;
+    if (PyArg_ParseTuple(args, "O:take", &arg))
+    {
+        if (!arg)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the attack function must be an ant!");
+            return nullptr;
+        }
+        if (arg == Py_None)
+        {
+            Py_RETURN_NONE;
+        }
+        if (PyObject_TypeCheck(arg, &AntType) == 0)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the attack function must be an ant!");
+            return nullptr;
+        }
+        AntObject* target = (AntObject*)arg;
+        if (!Ant_attackable(self, target, false))
+        {
+            Py_RETURN_NONE; // Silently exiting is better than a warning because ants moving out of range is not uncommon
+        }
+        if (!Ant_sendAttack(self, target))
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    return nullptr;
+}
+
+
+static PyObject* Ant_goAttack(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    if (!self->root || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot attack with a dead ant!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    else if (self->root->map->antPermanents[self->antID]->parent != self->root->map->nests[self->root->selfNestID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot take with an ant that isn't ours!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    PyObject* arg = nullptr;
+    if (PyArg_ParseTuple(args, "O:take", &arg))
+    {
+        if (!arg)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the goAttack function must be an ant!");
+            return nullptr;
+        }
+        if (arg == Py_None)
+        {
+            Py_RETURN_NONE;
+        }
+        if (PyObject_TypeCheck(arg, &AntType) == 0)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the goAttack function must be an ant!");
+            return nullptr;
+        }
+        AntObject* target = (AntObject*)arg;
+        if (!Ant_attackable(self, target, true))
+        {
+            Py_RETURN_NONE; // Silently exiting is better than a warning because ants moving out of range is not uncommon
+        }
+        DPos p = self->root->map->antPermanents[target->antID]->p;
+        if (!Ant_sendGoto(self, p))
+        {
+            return nullptr;
+        }
+        if (!Ant_sendAttack(self, target))
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    return nullptr;
+}
+
+
+static PyObject* Ant_follow(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    if (!self->root || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot move a dead ant!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    else if (self->root->map->antPermanents[self->antID]->parent != self->root->map->nests[self->root->selfNestID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot move an ant that isn't ours!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    PyObject* arg = nullptr;
+    if (PyArg_ParseTuple(args, "O:move", &arg))
+    {
+        if (!arg)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the follow function must be an ant!");
+            return nullptr;
+        }
+        if (arg == Py_None)
+        {
+            Py_RETURN_NONE;
+        }
+        if (PyObject_TypeCheck(arg, &AntType) == 0)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the follow function must be an ant!");
+            return nullptr;
+        }
+        AntObject* target = (AntObject*)arg;
+        if (!Ant_attackable(self, target, true))
+        {
+            Py_RETURN_NONE; // Silently exiting is better than a warning because ants moving out of range is not uncommon
+        }
+        DPos p = self->root->map->antPermanents[target->antID]->p;
+        if (!Ant_sendFollow(self, p, target))
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    return nullptr;
+}
+
+
+static PyObject* Ant_followAttack(PyObject* op, PyObject* args)
+{
+    std::cout << "Here" << std::endl;
+    AntObject* self = (AntObject*)op;
+    if (!self->root || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot move a dead ant!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    else if (self->root->map->antPermanents[self->antID]->parent != self->root->map->nests[self->root->selfNestID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot move an ant that isn't ours!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    PyObject* arg = nullptr;
+    if (PyArg_ParseTuple(args, "O:move", &arg))
+    {
+        if (!arg)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the follow function must be an ant!");
+            return nullptr;
+        }
+        if (arg == Py_None)
+        {
+            Py_RETURN_NONE;
+        }
+        if (PyObject_TypeCheck(arg, &AntType) == 0)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the follow function must be an ant!");
+            return nullptr;
+        }
+        AntObject* target = (AntObject*)arg;
+        if (!Ant_attackable(self, target, true))
+        {
+            Py_RETURN_NONE; // Silently exiting is better than a warning because ants moving out of range is not uncommon
+        }
+        DPos p = self->root->map->antPermanents[target->antID]->p;
+        if (!Ant_sendFollowAttack(self, p, target))
+        {
+            return nullptr;
+        }
+        std::cout << "End" << std::endl;
+        Py_RETURN_NONE;
+    }
+    return nullptr;
+}
+
+
+static PyObject* Ant_nearestEnemy(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    DPos p;
+    if (!self->root || !self->root->map || self->antID == UINT_MAX || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (self->echo.type != 0xff && self->echo.p.x != USHRT_MAX && self->echo.p.y != USHRT_MAX)
+        {
+            p = self->echo.p;
+        }
+        else
+        {
+            if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot get nearest food to dead ant!", 2) < 0)
+            {
+                return nullptr;
+            }
+            Py_RETURN_NONE;
+        }
+    }
+    else
+    {
+        p = self->root->map->antPermanents[self->antID]->p;
+    }
+    Ant*a = nullptr;
+    double bestDist = -1;
+    for (Ant*i : self->root->map->antPermanents)
+    {
+        if (!i)
+        {
+            continue;
+        }
+        if (i->pid != self->antID && i->parent != self->root->map->nests[self->root->selfNestID] && (a == nullptr || (p-i->p).magnitude() < bestDist))
+        {
+            a = i;
+            bestDist = (p-i->p).magnitude();
+        }
+    }
+    if (!a)
+    {
+        Py_RETURN_NONE;
+    }
+    AntObject*antobj = (AntObject*)AntType.tp_alloc(&AntType, 0);
+    if (antobj)
+    {
+        antobj->echo.type = 0xff;
+        antobj->antID = a->pid;
+        antobj->root = self->root;
+    }
+    Py_XINCREF(antobj);
+    return (PyObject*)antobj;
+}
+
+
+static PyObject* Ant_nearestFriend(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    DPos p;
+    if (!self->root || !self->root->map || self->antID == UINT_MAX || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (self->echo.type != 0xff && self->echo.p.x != USHRT_MAX && self->echo.p.y != USHRT_MAX)
+        {
+            p = self->echo.p;
+        }
+        else
+        {
+            if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot get nearest food to dead ant!", 2) < 0)
+            {
+                return nullptr;
+            }
+            Py_RETURN_NONE;
+        }
+    }
+    else
+    {
+        p = self->root->map->antPermanents[self->antID]->p;
+    }
+    Ant*a = nullptr;
+    double bestDist = -1;
+    for (Ant*i : self->root->map->antPermanents)
+    {
+        if (!i)
+        {
+            continue;
+        }
+        if (i->pid != self->antID && i->parent == self->root->map->nests[self->root->selfNestID] && (a == nullptr || (p-i->p).magnitude() < bestDist))
+        {
+            a = i;
+            bestDist = (p-i->p).magnitude();
+        }
+    }
+    if (!a)
+    {
+        Py_RETURN_NONE;
+    }
+    AntObject*antobj = (AntObject*)AntType.tp_alloc(&AntType, 0);
+    if (antobj)
+    {
+        antobj->echo.type = 0xff;
+        antobj->antID = a->pid;
+        antobj->root = self->root;
+    }
+    Py_XINCREF(antobj);
+    return (PyObject*)antobj;
+}
+
+
+static PyObject* Ant_nearestAnt(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    DPos p;
+    if (!self->root || !self->root->map || self->antID == UINT_MAX || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (self->echo.type != 0xff && self->echo.p.x != USHRT_MAX && self->echo.p.y != USHRT_MAX)
+        {
+            p = self->echo.p;
+        }
+        else
+        {
+            if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot get nearest food to dead ant!", 2) < 0)
+            {
+                return nullptr;
+            }
+            Py_RETURN_NONE;
+        }
+    }
+    else
+    {
+        p = self->root->map->antPermanents[self->antID]->p;
+    }
+    Ant*a = nullptr;
+    double bestDist = -1;
+    for (Ant*i : self->root->map->antPermanents)
+    {
+        if (!i)
+        {
+            continue;
+        }
+        if (i->pid != self->antID && (a == nullptr || (p-i->p).magnitude() < bestDist))
+        {
+            a = i;
+            bestDist = (p-i->p).magnitude();
+        }
+    }
+    if (!a)
+    {
+        Py_RETURN_NONE;
+    }
+    AntObject*antobj = (AntObject*)AntType.tp_alloc(&AntType, 0);
+    if (antobj)
+    {
+        antobj->echo.type = 0xff;
+        antobj->antID = a->pid;
+        antobj->root = self->root;
+    }
+    Py_XINCREF(antobj);
+    return (PyObject*)antobj;
+}
 
 
 static PyObject* AntGameClient_getnests(PyObject* op, void *closure)
@@ -1161,7 +3324,7 @@ static PyObject* AntGameClient_getnests(PyObject* op, void *closure)
             PyErr_SetString(PyExc_MemoryError, "Failed to get memory for a nest in the list of nests!");
             return nullptr;
         }
-        item->root = op;
+        item->root = self;
         item->nestID = i;
         Py_INCREF(item);
         PyList_SetItem(ret, i, (PyObject*)item);
@@ -1203,7 +3366,7 @@ static PyObject* AntGameClient_getants(PyObject* op, void *closure)
             Py_DECREF(ret);
             return nullptr;
         }
-        item->root = op;
+        item->root = self;
         item->antID = i;
         item->echo.type = 0xff;
         Py_INCREF(item);
@@ -1211,6 +3374,34 @@ static PyObject* AntGameClient_getants(PyObject* op, void *closure)
         j++;
     }
     return ret;
+}
+
+
+static bool AntGameClient_callAntCallback(AntGameClientObject* self, PyObject*func, Ant* a)
+{
+    if (!a)
+    {
+        PyErr_SetString(PyExc_RuntimeError, "A null ant was passed to an ant callback. This is not your fault. Report the error!");
+        return false;
+    }
+    AntObject* item = (AntObject*)AntType.tp_alloc(&AntType, 0);
+    if (!item)
+    {
+        return false;
+    }
+    if (self && self->map->antPermanents.size() > a->pid && self->map->antPermanents[a->pid])
+    {
+        item->root = self;
+        item->antID = a->pid;
+        item->echo.type = 0xff;
+    }
+    else
+    {
+        item->root = nullptr;
+        item->antID = 0xffffffff;
+        item->echo = *a;
+    }
+    return AntGameClient_callAntCallback(func, (PyObject*)item);
 }
 
 
@@ -1223,7 +3414,7 @@ static PyObject* AntGameClient_getme(PyObject* op, void* closure)
         return nullptr;
     }
     NestObject*nobj = (NestObject*)NestType.tp_alloc(&NestType, 0);
-    nobj->root = op;
+    nobj->root = self;
     nobj->nestID = self->selfNestID;
     Py_INCREF((PyObject*)nobj);
     return (PyObject*)nobj;
@@ -1261,6 +3452,14 @@ static int AntGame_module_exec(PyObject *m)
         return -1;
     }
     if (PyModule_AddObjectRef(m, "Pos", (PyObject*)&PosType) < 0)
+    {
+        return -1;
+    }
+    if (PyType_Ready(&AntTypeType) < 0)
+    {
+        return -1;
+    }
+    if (PyModule_AddObjectRef(m, "AntType", (PyObject*)&AntTypeType) < 0)
     {
         return -1;
     }
@@ -1329,4 +3528,342 @@ static struct PyModuleDef AntGame_module = {
 PyMODINIT_FUNC PyInit_AntGame(void)
 {
     return PyModuleDef_Init(&AntGame_module);
+}
+
+
+
+// CODE YOU COULD EDIT BELOW HERE
+
+
+static bool AntGameClient_isFood(AntGameClientObject* self, Pos t)
+{
+    if (!self->map)
+    {
+        return false;
+    }
+    return self->map->tileEdible(t);
+}
+
+
+static bool AntGameClient_isUnclaimedFood(AntGameClientObject* self, Pos t)
+{
+    if (!self->map)
+    {
+        return false;
+    }
+    if (!self->map->tileEdible(t))
+    {
+        return false;
+    }
+    for (Ant*a : self->map->nests[self->selfNestID]->ants)
+    {
+        for (Ant::AntCommand acmd : a->commands)
+        {
+            if (acmd.cmd == Ant::AntCommand::ID::TINTERACT && acmd.arg == ((unsigned int)t.x<<16)+(unsigned int)t.y)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+
+static Pos AntGameClient_findNearestFood(AntGameClientObject* self, Pos center, bool (*checker)(AntGameClientObject*, Pos))
+{
+    Pos check = center;
+    if (checker(self, check))
+    {
+        return check;
+    }
+    check.x += 1;
+    if (checker(self, check))
+    {
+        return check;
+    }
+    check.y -= 1;
+    if (checker(self, check))
+    {
+        return check;
+    }
+    check.y += 2;
+    if (checker(self, check))
+    {
+        return check;
+    }
+    check.x -= 1;
+    if (checker(self, check))
+    {
+        return check;
+    }
+    check.y -= 2;
+    if (checker(self, check))
+    {
+        return check;
+    }
+    check.x -= 1;
+    if (checker(self, check))
+    {
+        return check;
+    }
+    check.y += 1;
+    if (checker(self, check))
+    {
+        return check;
+    }
+    check.y += 1;
+    if (checker(self, check))
+    {
+        return check;
+    }
+
+    unsigned int gap = 5;
+    std::uint64_t current = 4;
+    unsigned short count = 2;
+    std::deque<unsigned int> gaps;
+    std::deque<std::uint64_t> currents;
+    std::deque<unsigned short> counts;
+    gaps.push_back(5);
+    currents.push_back(5);
+    counts.push_back(2);
+    if (center == self->map->nests[self->selfNestID]->p)
+    {
+        gap = self->nearestFoodData.gap;
+        current = self->nearestFoodData.current;
+        count = self->nearestFoodData.count;
+        currents = self->nearestFoodData.currents;
+        counts = self->nearestFoodData.counts;
+        gaps = self->nearestFoodData.gaps;
+    }
+    while (count < center.x+1 || count < self->map->size.x-center.x || count < center.y+1 || count < self->map->size.y-center.y)
+    {
+        auto bestCurrentsIt = currents.end();
+        auto bestCountsIt = counts.end();
+        auto bestGapsIt = gaps.end();
+        unsigned short bestIndex = -1;
+        std::uint64_t best = -1;
+        {
+        auto currentsIt = currents.begin();
+        auto countsIt = counts.begin();
+        auto gapsIt = gaps.begin();
+        unsigned short index = 1;
+        for (;currentsIt != currents.end();currentsIt++)
+        {
+            if (*currentsIt < best && *countsIt <= index)
+            {
+                best = *currentsIt;
+                bestCurrentsIt = currentsIt;
+                bestCountsIt = countsIt;
+                bestGapsIt = gapsIt;
+                bestIndex = index;
+            }
+            index++;
+            countsIt++;
+            gapsIt++;
+        }
+        if (bestIndex == USHRT_MAX || current < best)
+        {
+            check.x = center.x + count;
+            check.y = center.y;
+            gaps.push_back(3);
+            currents.push_back(current+1);
+            counts.push_back(1);
+            current += gap;
+            gap += 2;
+            if (self->map->size.x - center.x > count && checker(self, check))
+            {
+                if (center == self->map->nests[self->selfNestID]->p)
+                {
+                    self->nearestFoodData.gap = gap;
+                    self->nearestFoodData.current = current;
+                    self->nearestFoodData.count = count+1;
+                    self->nearestFoodData.currents = currents;
+                    self->nearestFoodData.counts = counts;
+                    self->nearestFoodData.gaps = gaps;
+                }
+                return check;
+            }
+            check.x = center.x - count;
+            if (center.x >= count && checker(self, check))
+            {
+                if (center == self->map->nests[self->selfNestID]->p)
+                {
+                    self->nearestFoodData.gap = gap;
+                    self->nearestFoodData.current = current;
+                    self->nearestFoodData.count = count+1;
+                    self->nearestFoodData.currents = currents;
+                    self->nearestFoodData.counts = counts;
+                    self->nearestFoodData.gaps = gaps;
+                }
+                return check;
+            }
+            check.x = center.x;
+            check.y = center.y - count;
+            if (center.y >= count && checker(self, check))
+            {
+                if (center == self->map->nests[self->selfNestID]->p)
+                {
+                    self->nearestFoodData.gap = gap;
+                    self->nearestFoodData.current = current;
+                    self->nearestFoodData.count = count+1;
+                    self->nearestFoodData.currents = currents;
+                    self->nearestFoodData.counts = counts;
+                    self->nearestFoodData.gaps = gaps;
+                }
+                return check;
+            }
+            check.y = center.y + count;
+            if (self->map->size.y - center.y > count && checker(self, check))
+            {
+                if (center == self->map->nests[self->selfNestID]->p)
+                {
+                    self->nearestFoodData.gap = gap;
+                    self->nearestFoodData.current = current;
+                    self->nearestFoodData.count = count+1;
+                    self->nearestFoodData.currents = currents;
+                    self->nearestFoodData.counts = counts;
+                    self->nearestFoodData.gaps = gaps;
+                }
+                return check;
+            }
+            count++;
+        }
+        else
+        {
+            check.x = bestIndex;
+            check.y = *bestCountsIt;
+            *bestCurrentsIt += *bestGapsIt;
+            *bestGapsIt += 2;
+            if (self->map->size.x - center.x > check.x && self->map->size.y - center.y > check.y && checker(self, center+check))
+            {
+                if (center == self->map->nests[self->selfNestID]->p)
+                {
+                    (*bestCountsIt)++;
+                    self->nearestFoodData.gap = gap;
+                    self->nearestFoodData.current = current;
+                    self->nearestFoodData.count = count;
+                    self->nearestFoodData.currents = currents;
+                    self->nearestFoodData.counts = counts;
+                    self->nearestFoodData.gaps = gaps;
+                }
+                return center+check;
+            }
+            if (center.x >= check.x && center.y >= check.y && checker(self, center-check))
+            {
+                if (center == self->map->nests[self->selfNestID]->p)
+                {
+                    (*bestCountsIt)++;
+                    self->nearestFoodData.gap = gap;
+                    self->nearestFoodData.current = current;
+                    self->nearestFoodData.count = count;
+                    self->nearestFoodData.currents = currents;
+                    self->nearestFoodData.counts = counts;
+                    self->nearestFoodData.gaps = gaps;
+                }
+                return center-check;
+            }
+            check.x *= -1;
+            if (self->map->size.x - center.x > -check.x && center.y >= check.y && checker(self, center+check))
+            {
+                if (center == self->map->nests[self->selfNestID]->p)
+                {
+                    (*bestCountsIt)++;
+                    self->nearestFoodData.gap = gap;
+                    self->nearestFoodData.current = current;
+                    self->nearestFoodData.count = count;
+                    self->nearestFoodData.currents = currents;
+                    self->nearestFoodData.counts = counts;
+                    self->nearestFoodData.gaps = gaps;
+                }
+                return center+check;
+            }
+            if (center.x >= check.x && self->map->size.y - center.y > check.y && checker(self, center-check))
+            {
+                if (center == self->map->nests[self->selfNestID]->p)
+                {
+                    (*bestCountsIt)++;
+                    self->nearestFoodData.gap = gap;
+                    self->nearestFoodData.current = current;
+                    self->nearestFoodData.count = count;
+                    self->nearestFoodData.currents = currents;
+                    self->nearestFoodData.counts = counts;
+                    self->nearestFoodData.gaps = gaps;
+                }
+                return center-check;
+            }
+            check.y = bestIndex;
+            check.x = *bestCountsIt;
+            if (self->map->size.x - center.x > check.x && self->map->size.y - center.y > check.y && checker(self, center+check))
+            {
+                if (center == self->map->nests[self->selfNestID]->p)
+                {
+                    (*bestCountsIt)++;
+                    self->nearestFoodData.gap = gap;
+                    self->nearestFoodData.current = current;
+                    self->nearestFoodData.count = count;
+                    self->nearestFoodData.currents = currents;
+                    self->nearestFoodData.counts = counts;
+                    self->nearestFoodData.gaps = gaps;
+                }
+                return center+check;
+            }
+            if (center.x >= check.x && center.y >= check.y && checker(self, center-check))
+            {
+                if (center == self->map->nests[self->selfNestID]->p)
+                {
+                    (*bestCountsIt)++;
+                    self->nearestFoodData.gap = gap;
+                    self->nearestFoodData.current = current;
+                    self->nearestFoodData.count = count;
+                    self->nearestFoodData.currents = currents;
+                    self->nearestFoodData.counts = counts;
+                    self->nearestFoodData.gaps = gaps;
+                }
+                return center-check;
+            }
+            check.x *= -1;
+            if (self->map->size.x - center.x > -check.x && center.y >= check.y && checker(self, center+check))
+            {
+                if (center == self->map->nests[self->selfNestID]->p)
+                {
+                    (*bestCountsIt)++;
+                    self->nearestFoodData.gap = gap;
+                    self->nearestFoodData.current = current;
+                    self->nearestFoodData.count = count;
+                    self->nearestFoodData.currents = currents;
+                    self->nearestFoodData.counts = counts;
+                    self->nearestFoodData.gaps = gaps;
+                }
+                return center+check;
+            }
+            if (center.x >= check.x && self->map->size.y - center.y > check.y && checker(self, center-check))
+            {
+                if (center == self->map->nests[self->selfNestID]->p)
+                {
+                    (*bestCountsIt)++;
+                    self->nearestFoodData.gap = gap;
+                    self->nearestFoodData.current = current;
+                    self->nearestFoodData.count = count;
+                    self->nearestFoodData.currents = currents;
+                    self->nearestFoodData.counts = counts;
+                    self->nearestFoodData.gaps = gaps;
+                }
+                return center-check;
+            }
+            (*bestCountsIt)++;
+        }
+        }
+    }
+    check.x = -1;
+    check.y = -1;
+    if (center == self->map->nests[self->selfNestID]->p)
+    {
+        self->nearestFoodData.gap = gap;
+        self->nearestFoodData.current = current;
+        self->nearestFoodData.count = count;
+        self->nearestFoodData.currents = currents;
+        self->nearestFoodData.counts = counts;
+        self->nearestFoodData.gaps = gaps;
+    }
+    return check;
 }

@@ -1,6 +1,5 @@
 #include "network.hpp"
 #include "map.hpp"
-#include "antTypes.hpp"
 #include <fstream>
 #include <climits>
 #include <cstdint>
@@ -429,7 +428,9 @@ void ConnectionManager::handlePlayers()
         {
             p->nestID = nid;
         }
+        //std::cout << "a" << std::endl;
 	p->toClose = !interpretRequests(p) || p->toClose;
+        //std::cout << "b" << std::endl;
         if (!p->toClose)
         {
             std::string feedbackString = "";
@@ -805,10 +806,7 @@ bool ConnectionManager::httpResponse(Viewer* v)
             }
             changelogData.clear();
             unsigned short antc = 0;
-            for (Ant* a : Round::instance->map->antPermanents)
-            {
-                if (a) {antc++;}
-            }
+            for (Nest* n : Round::instance->map->nests) {if (n) {antc += n->ants.size();}}
             changelogData.reserve(10 + antc*4 + (mapEventQueue.size() - clientAt)*5);
             changelogData.append(makeAGNPuint(mapEventQueue.size() - clientAt));
             unsigned int index = 0;
@@ -823,15 +821,24 @@ bool ConnectionManager::httpResponse(Viewer* v)
                 index++;
             }
             changelogData.append(makeAGNPushort(antc));
-            for (Ant* a : Round::instance->map->antPermanents)
+            for (unsigned char i = 0; i < Round::instance->map->nests.size(); i++)
             {
-                if (a)
+                if (!Round::instance->map->nests[i])
                 {
-                    changelogData.append(makeAGNPushort((unsigned short)std::floor(a->p.x)));
-                    changelogData.append(makeAGNPushort((unsigned short)std::floor(a->p.y)));
+                    continue;
+                }
+                for (Ant* a : Round::instance->map->nests[i]->ants)
+                {
+                    if (a)
+                    {
+                        changelogData.append(makeAGNPushort((unsigned short)std::floor(a->p.x)));
+                        changelogData.append(makeAGNPushort((unsigned short)std::floor(a->p.y)));
+                        changelogData.push_back(i);
+                    }
                 }
             }
             changelogData.append(makeAGNPuint(mapEventQueue.size()));
+            //std::cout << "Changelog data " << DEBUGstringToHex(changelogData) << std::endl;
             _sendResponse(v, "HTTP/1.1 200 OK\r\nConnection: keep-alive\r\n", changelogData);
             data.erase(data.begin(), data.begin() + data.find("\r\n\r\n") + 4);
             v->unusedData = data;
@@ -1589,7 +1596,7 @@ bool ConnectionManager::interpretRequests(Player* p)
                                 cmd.cmd = Command::ID::NEWANT;
                                 cmd.arg = (unsigned char)data[0];
                                 data.erase(0, 1);
-                                if (cmd.arg >= antTypec || Round::instance->map->nests[cmd.nestID]->commands.size() >= 0xff)
+                                if (cmd.arg >= Ant::antTypec || Round::instance->map->nests[cmd.nestID]->commands.size() >= 0xff)
                                 {
                                     responses.append("\x08\x01", 2);
                                 }

@@ -13,6 +13,9 @@ body{
 p, ul{
     color: white;
 }
+canvas{
+    border: 10px solid white;
+}
 
         </style>
         <script>
@@ -31,8 +34,8 @@ fetch("internalMapData").then((response) => {
         }
         return response.text();
         }).then(fillinMap);
-const colors = [[255, 255, 255], [0, 0, 0], [255, 0, 0], [0, 255, 0]];
-const antColor = [0, 0, 255];
+const colors = [[0, 0, 0], [255, 255, 255], [80, 80, 80], [0, 255, 0]];
+const antColor = [[0, 255, 0], [255, 0, 0], [255, 255, 0], [0, 255, 255]]
 const hexString = "0123456789abcdef";
 let baseImgData;
 let changelogPoint = 0;
@@ -58,6 +61,7 @@ function refreshMap()
         {
             return response.bytes();
         }
+        console.log("Problem");
         setTimeout(refreshMap, 1000);
         return null;
     }).then(updateMap);
@@ -78,6 +82,7 @@ function fillinMap(response)
 {
     let ctx = document.getElementById("MapCanvas").getContext("2d");
     let data = response.toLowerCase();
+    ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, 1000, 1000);
     let imgdata = ctx.getImageData(0, 0, __WIDTH, __HEIGHT);
     let isFirst = true;
@@ -145,18 +150,36 @@ function updateMap(response)
         baseImgData.data[(x + __WIDTH * y) * 4] = colors[response[index+4]][0];
         baseImgData.data[(x + __WIDTH * y) * 4 + 1] = colors[response[index+4]][1];
         baseImgData.data[(x + __WIDTH * y) * 4 + 2] = colors[response[index+4]][2];
-        console.log("Changing pixel at " + x.toString() + ", " + y.toString());
     }
     let copyImgData = document.getElementById("MapCanvas").getContext("2d").createImageData(baseImgData);
     copyImgData.data.set(baseImgData.data);
     let antc = get16i(response, index);
-    for (index = 6 + mec * 5; index < 6 + mec * 5 + antc * 4; index += 4)
+    for (index = 6 + mec * 5; index < 6 + mec * 5 + antc * 5; index += 5)
     {
         let x = get16i(response, index);
         let y = get16i(response, index + 2);
-        copyImgData.data[(x + __WIDTH * y) * 4] = antColor[0];
-        copyImgData.data[(x + __WIDTH * y) * 4 + 1] = antColor[1];
-        copyImgData.data[(x + __WIDTH * y) * 4 + 2] = antColor[2];
+        let n = response[index+4];
+        copyImgData.data[(x + __WIDTH * y) * 4] = antColor[n%4][0];
+        copyImgData.data[(x + __WIDTH * y) * 4 + 1] = antColor[n%4][1];
+        copyImgData.data[(x + __WIDTH * y) * 4 + 2] = antColor[n%4][2];
+        if (x < __WIDTH - 1)
+        {
+            copyImgData.data[(x+1 + __WIDTH * y) * 4] = antColor[n%4][0];
+            copyImgData.data[(x+1 + __WIDTH * y) * 4 + 1] = antColor[n%4][1];
+            copyImgData.data[(x+1 + __WIDTH * y) * 4 + 2] = antColor[n%4][2];
+            if (y < __HEIGHT - 1)
+            {
+                copyImgData.data[(x+1 + __WIDTH * (y+1)) * 4] = antColor[n%4][0];
+                copyImgData.data[(x+1 + __WIDTH * (1+y)) * 4 + 1] = antColor[n%4][1];
+                copyImgData.data[(x+1 + __WIDTH * (y+1)) * 4 + 2] = antColor[n%4][2];
+            }
+        }
+        if (y < __HEIGHT - 1)
+        {
+            copyImgData.data[(x + __WIDTH * (y+1)) * 4] = antColor[n%4][0];
+            copyImgData.data[(x + __WIDTH * (1+y)) * 4 + 1] = antColor[n%4][1];
+            copyImgData.data[(x + __WIDTH * (y+1)) * 4 + 2] = antColor[n%4][2];
+        }
     }
     changelogPoint = get32i(response, index);
     document.getElementById("MapCanvas").getContext("2d").putImageData(copyImgData, 0, 0);

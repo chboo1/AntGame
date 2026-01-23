@@ -45,12 +45,13 @@ int main()
             d = std::min(d, sqrt((1000-x)*(1000-x)+(1000-y)*(1000-y)));
             d = std::min(d, sqrt(x*x+(1000-y)*(1000-y)));
             d = std::min(d, sqrt((500-x)*(500-x)+(500-y)*(500-y)));
+            /*
             if (((x == 499 || x == 500) && (y < 400 || y > 600)) || ((y == 499 || y == 500) && (x < 400 || x > 600)))
             {
                 str.push_back('\x01');
                 wallC++;
             }
-            else if (rand() % (int)std::floor(std::max(d / 10.0, 10.0)) == 0)
+            else*/ if (rand() % (int)std::floor(std::max(d / 10.0, 10.0)) == 0)
             {
                 str.push_back('\x02');
                 foodC++;

@@ -1,5 +1,4 @@
 #include "map.hpp"
-#include "antTypes.hpp"
 #include <chrono>
 #include <iostream>
 #include <vector>
@@ -74,6 +73,24 @@ Pos& Pos::operator=(DPos o)
 bool Pos::operator==(Pos o)
 {
     return x == o.x && y == o.y;
+}
+
+
+Pos Pos::operator+(Pos o)
+{
+    Pos r;
+    r.x = x + o.x;
+    r.y = y + o.y;
+    return r;
+}
+
+
+Pos Pos::operator-(Pos o)
+{
+    Pos r;
+    r.x = x - o.x;
+    r.y = y - o.y;
+    return r;
 }
 
 
@@ -628,6 +645,13 @@ bool Map::tileWalkable(Pos p)
 }
 
 
+bool Map::tileEdible(Pos p)
+{
+    if (p.x >= size.x || p.y >= size.y) {return false;}
+    return tileEdible((*this)[p]);
+}
+
+
 bool Map::tileWalkable(Tile t)
 {
     switch (t)
@@ -636,6 +660,18 @@ bool Map::tileWalkable(Tile t)
             return false;
         default:
             return true;
+    }
+}
+
+
+bool Map::tileEdible(Tile t)
+{
+    switch (t)
+    {
+        case Tile::FOOD:
+            return true;
+        default:
+            return false;
     }
 }
 
@@ -707,12 +743,12 @@ void Nest::step(double delta)
         switch (cmd.cmd)
         {
             case NestCommand::ID::NEWANT:
-                if (foodCount < antTypes[cmd.arg].costMod * RoundSettings::instance->antCost || ants.size() >= 254)
+                if (foodCount < Ant::antTypes[cmd.arg].costMod * RoundSettings::instance->antCost || ants.size() >= 254)
                 {
                     cmd.state = NestCommand::State::FAIL;
                     break;
                 }
-                foodCount -= antTypes[cmd.arg].costMod * RoundSettings::instance->antCost;
+                foodCount -= Ant::antTypes[cmd.arg].costMod * RoundSettings::instance->antCost;
                 Ant* a = createAnt(cmd.arg);
                 cmd.state = NestCommand::State::SUCCESS;
                 ConnectionManager::AntEvent ae;
@@ -806,7 +842,7 @@ void Ant::init(Nest* nparent, DPos npos, unsigned char ntype) // Takes a parent 
     parent = nparent;
     p = npos;
     type = ntype;
-    health = antTypes[type].healthMod * RoundSettings::instance->antHealth;
+    health = Ant::antTypes[type].healthMod * RoundSettings::instance->antHealth;
     foodCarry = 0;
     pid = parent->parent->antPermanents.size();
     parent->parent->antPermanents.push_back(this);
@@ -816,7 +852,7 @@ void Ant::_init(Nest* nparent, DPos npos, unsigned char ntype)
     parent = nparent;
     p = npos;
     type = ntype;
-    health = antTypes[type].healthMod * RoundSettings::instance->antHealth;
+    health = Ant::antTypes[type].healthMod * RoundSettings::instance->antHealth;
     foodCarry = 0;
 }
 void Ant::giveCommand(AntCommand com)
@@ -843,10 +879,10 @@ void Ant::step(double delta)
                     cmd.state = AntCommand::State::SUCCESS;
                     break;
                 }
-                else if (destLen > delta * antTypes[type].speedMod * RoundSettings::instance->movementSpeed)
+                else if (destLen > delta * Ant::antTypes[type].speedMod * RoundSettings::instance->movementSpeed)
                 {
-                    dest.x = dest.x / destLen * delta * antTypes[type].speedMod * RoundSettings::instance->movementSpeed;
-                    dest.y = dest.y / destLen * delta * antTypes[type].speedMod * RoundSettings::instance->movementSpeed;
+                    dest.x = dest.x / destLen * delta * Ant::antTypes[type].speedMod * RoundSettings::instance->movementSpeed;
+                    dest.y = dest.y / destLen * delta * Ant::antTypes[type].speedMod * RoundSettings::instance->movementSpeed;
                 }
                 Pos npos = p + dest;
                 Pos v = p;
@@ -897,7 +933,7 @@ void Ant::step(double delta)
                     p.x += 0.5;
                     p.y += 0.5;
                 }
-                if (abs(p.x - ConnectionManager::makeAGNPshortdouble(cmd.arg>>32)) < 0.5 && abs(p.y - ConnectionManager::makeAGNPshortdouble(cmd.arg&0xffffffff)) < 0.5)
+                if (abs(p.x - ConnectionManager::getAGNPshortdouble(cmd.arg>>32)) < 0.5 && abs(p.y - ConnectionManager::getAGNPshortdouble(cmd.arg&0xffffffff)) < 0.5)
                 {
                     cmd.state = AntCommand::State::SUCCESS;
                 }
@@ -908,7 +944,7 @@ void Ant::step(double delta)
                 {
                     cmd.state = AntCommand::State::FAIL;
                 }
-                else if (((DPos)target - p).magnitude() > RoundSettings::instance->pickupRange)
+                else if (((DPos)target - p).magnitude() > RoundSettings::instance->pickupRange * Ant::antTypes[type].rangeMod)
                 {
                     if (!moved) // This basically means if you're moving somewhere it'll let you retry next frame
                     {
@@ -920,7 +956,7 @@ void Ant::step(double delta)
                     switch ((*parent->parent)[target])
                     {
                         case Map::Tile::FOOD:
-                            if (antTypes[type].capacity * RoundSettings::instance->capacityMod < foodCarry + RoundSettings::instance->foodYield)
+                            if (Ant::antTypes[type].capacity * RoundSettings::instance->capacityMod < foodCarry + RoundSettings::instance->foodYield)
                             {
                                 cmd.state = AntCommand::State::FAIL;
                             }
@@ -964,8 +1000,8 @@ void Ant::step(double delta)
                                 }
                                 else
                                 {
-                                    n->foodCount -= std::min(RoundSettings::instance->foodTheftYield, antTypes[type].capacity * RoundSettings::instance->capacityMod - foodCarry);
-                                    foodCarry += std::min(RoundSettings::instance->foodTheftYield, antTypes[type].capacity * RoundSettings::instance->capacityMod - foodCarry);
+                                    n->foodCount -= std::min(RoundSettings::instance->foodTheftYield, Ant::antTypes[type].capacity * RoundSettings::instance->capacityMod - foodCarry);
+                                    foodCarry += std::min(RoundSettings::instance->foodTheftYield, Ant::antTypes[type].capacity * RoundSettings::instance->capacityMod - foodCarry);
                                     ConnectionManager::AntEvent ae;
                                     ae.pid = pid;
                                     ae.foodCarry = foodCarry;
@@ -987,7 +1023,7 @@ void Ant::step(double delta)
                     cmd.state = AntCommand::State::FAIL;
                     break;
                 }
-                if ((parent->parent->antPermanents[cmd.arg]->p - p).magnitude() > RoundSettings::instance->attackRange)
+                if ((parent->parent->antPermanents[cmd.arg]->p - p).magnitude() > RoundSettings::instance->attackRange * Ant::antTypes[type].rangeMod)
                 {
                     if (!moved)
                     {
@@ -997,12 +1033,15 @@ void Ant::step(double delta)
                 }
                 cmd.state = AntCommand::State::SUCCESS;
                 Ant* ea = parent->parent->antPermanents[cmd.arg];
-                ea->health -= antTypes[type].damageMod * RoundSettings::instance->attackDamage;
+                ea->health -= Ant::antTypes[type].damageMod * RoundSettings::instance->attackDamage;
                 ConnectionManager::AntEvent ae;
                 ae.pid = ea->pid;
                 ae.health = ea->health;
                 ae.foodCarry = ea->foodCarry;
                 Round::instance->cm.antEventQueue.push_back(ae);
+                break;}
+            default:{
+                cmd.state = AntCommand::State::FAIL;
                 break;}
         }
     }
