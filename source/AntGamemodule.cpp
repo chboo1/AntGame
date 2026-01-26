@@ -439,6 +439,11 @@ static bool AntGameClient_frame(AntGameClientObject*self)
                     }
                     else if (acmd.cmd == Ant::AntCommand::ID::CFOLLOW)
                     {
+                        if (acmd.arg == UINT_MAX || !self->map->antPermanents[acmd.arg])
+                        {
+                            it = a->commands.erase(it);
+                            continue;
+                        }
                         followPid = acmd.arg;
                         followAttack = true;
                         fcmdit = it;
@@ -460,7 +465,6 @@ static bool AntGameClient_frame(AntGameClientObject*self)
             }
             else if (followPid != UINT_MAX)
             {
-                std::cout << "Follow continue for " << a->pid << ", " << followPid << std::endl;
                 if (followAttack)
                 {
                     if (!AntGameClient_continueFollowAttack(self, a->pid, followPid))
@@ -475,7 +479,6 @@ static bool AntGameClient_frame(AntGameClientObject*self)
                         return false;
                     }
                 }
-                std::cout << "Survival" << std::endl;
             }
         }
     }
@@ -518,7 +521,6 @@ static bool AntGameClient_frame(AntGameClientObject*self)
         {
             if (!AntGameClient_callAntCallback(self, self->onDeliver, self->map->antPermanents[pid]))
             {
-                std::cout << "OI" << std::endl;
                 return false;
             }
         }
@@ -2347,7 +2349,7 @@ static bool AntGameClient_continueFollowAttack(AntGameClientObject* agc, unsigne
     Ant* a = agc->map->antPermanents[self];
     Ant* t = agc->map->antPermanents[other];
     std::string msg;
-    msg.append("\0\0\0\x2b\0\0\0\x03\x0c", 9);
+    msg.append("\0\0\0\x23\0\0\0\x03\x0c", 9);
     msg.append(ConnectionManager::makeAGNPuint(self));
     msg.push_back('\x04');
     msg.append(ConnectionManager::makeAGNPuint(self));
@@ -3087,7 +3089,6 @@ static PyObject* Ant_follow(PyObject* op, PyObject* args)
 
 static PyObject* Ant_followAttack(PyObject* op, PyObject* args)
 {
-    std::cout << "Here" << std::endl;
     AntObject* self = (AntObject*)op;
     if (!self->root || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
     {
@@ -3132,7 +3133,6 @@ static PyObject* Ant_followAttack(PyObject* op, PyObject* args)
         {
             return nullptr;
         }
-        std::cout << "End" << std::endl;
         Py_RETURN_NONE;
     }
     return nullptr;
@@ -3762,8 +3762,7 @@ static Pos AntGameClient_findNearestFood(AntGameClientObject* self, Pos center, 
                 }
                 return center-check;
             }
-            check.x *= -1;
-            if (self->map->size.x - center.x > -check.x && center.y >= check.y && checker(self, center+check))
+            if (self->map->size.x - center.x > check.x && center.y >= check.y && checker(self, {(unsigned short)(center.x+check.x), (unsigned short)(center.y-check.y)}))
             {
                 if (center == self->map->nests[self->selfNestID]->p)
                 {
@@ -3775,9 +3774,9 @@ static Pos AntGameClient_findNearestFood(AntGameClientObject* self, Pos center, 
                     self->nearestFoodData.counts = counts;
                     self->nearestFoodData.gaps = gaps;
                 }
-                return center+check;
+                return {(unsigned short)(center.x+check.x), (unsigned short)(center.y-check.y)};
             }
-            if (center.x >= check.x && self->map->size.y - center.y > check.y && checker(self, center-check))
+            if (center.x >= check.x && self->map->size.y - center.y > check.y && checker(self, {(unsigned short)(center.x-check.x), (unsigned short)(center.y+check.y)}))
             {
                 if (center == self->map->nests[self->selfNestID]->p)
                 {
@@ -3789,7 +3788,7 @@ static Pos AntGameClient_findNearestFood(AntGameClientObject* self, Pos center, 
                     self->nearestFoodData.counts = counts;
                     self->nearestFoodData.gaps = gaps;
                 }
-                return center-check;
+                return {(unsigned short)(center.x-check.x), (unsigned short)(center.y+check.y)};
             }
             check.y = bestIndex;
             check.x = *bestCountsIt;
@@ -3821,8 +3820,7 @@ static Pos AntGameClient_findNearestFood(AntGameClientObject* self, Pos center, 
                 }
                 return center-check;
             }
-            check.x *= -1;
-            if (self->map->size.x - center.x > -check.x && center.y >= check.y && checker(self, center+check))
+            if (self->map->size.x - center.x > check.x && center.y >= check.y && checker(self, {(unsigned short)(center.x+check.x), (unsigned short)(center.y-check.y)}))
             {
                 if (center == self->map->nests[self->selfNestID]->p)
                 {
@@ -3834,9 +3832,9 @@ static Pos AntGameClient_findNearestFood(AntGameClientObject* self, Pos center, 
                     self->nearestFoodData.counts = counts;
                     self->nearestFoodData.gaps = gaps;
                 }
-                return center+check;
+                return {(unsigned short)(center.x+check.x), (unsigned short)(center.y-check.y)};
             }
-            if (center.x >= check.x && self->map->size.y - center.y > check.y && checker(self, center-check))
+            if (center.x >= check.x && self->map->size.y - center.y > check.y && checker(self, {(unsigned short)(center.x-check.x), (unsigned short)(center.y+check.y)}))
             {
                 if (center == self->map->nests[self->selfNestID]->p)
                 {
@@ -3848,7 +3846,7 @@ static Pos AntGameClient_findNearestFood(AntGameClientObject* self, Pos center, 
                     self->nearestFoodData.counts = counts;
                     self->nearestFoodData.gaps = gaps;
                 }
-                return center-check;
+                return {(unsigned short)(center.x-check.x), (unsigned short)(center.y+check.y)};
             }
             (*bestCountsIt)++;
         }

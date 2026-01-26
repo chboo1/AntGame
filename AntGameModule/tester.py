@@ -14,7 +14,7 @@ def onStart():
 
 def onWait(ma):
     if ma.type == attackerAnt:
-        ma.goAttack(ma.nearestEnemy())
+        ma.followAttack(ma.nearestEnemy())
 
 
 def onDeliver(ma):

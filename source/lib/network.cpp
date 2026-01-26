@@ -396,7 +396,7 @@ void ConnectionManager::reset()
         {
             if (Round::instance->logging)
             {
-                std::cout << "Kicking out player at nest ID " << (int)p->nestID << std::endl;
+                std::cout << "Kicking out player at nest ID " << (int)p->nestID << " (game is ending)" << std::endl;
             }
             delete p;
         }
@@ -551,7 +551,12 @@ void ConnectionManager::handlePlayers()
         {
             if (Round::instance->logging)
             {
-                std::cout << "Kicking out player at nest ID " << (int)p->nestID << std::endl;
+                std::cout << "Kicking out player at nest ID " << (int)p->nestID;
+                if (timeSinceMessage >= 3.0)
+                {
+                    std::cout << " for not responding.";
+                }
+                std::cout << std::endl;
             }
             if (p && p->conn && p->conn->connected())
             {

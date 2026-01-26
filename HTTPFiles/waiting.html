@@ -13,6 +13,9 @@ body{
 p, ul{
     color: white;
 }
+canvas{
+    border: 10px solid white;
+}
 
         </style>
         <script>
@@ -21,7 +24,7 @@ fetch("internalMapData").then((response) => {
         if (!response.ok)
         {
             let ctx = document.getElementById("MapCanvas").getContext("2d");
-            ctx.fillStyle = "#ffffff";
+            ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, __WIDTH, __HEIGHT);
             ctx.fillStyle = "#000000";
             ctx.font = "12px Arial";
@@ -30,7 +33,7 @@ fetch("internalMapData").then((response) => {
         }
         return response.text();
         }).then(fillinMap);
-const colors = [[255, 255, 255], [0, 0, 0], [255, 0, 0], [0, 255, 0]];
+const colors = [[0, 0, 0], [255, 255, 255], [80, 80, 80], [0, 255, 0]];
 const hexString = "0123456789abcdef";
 
 function refreshData()
