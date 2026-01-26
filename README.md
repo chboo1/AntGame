@@ -65,9 +65,7 @@ Things I need to do! It's quite complicated in reality, but in short, this is th
 - \[Optional\] Map maker program. This is an optional addition that would let one easily create new maps. Of course, it's not strictly needed, but if I have additional time it's definitely happening!
 
 - Known specific TODOs:
-	+ Test AINTERACT
-	+ Test CANCEL
-	+ Make all the antcs into unsigned shorts instead of unsigned chars
+	+ Make all the antcs into unsigned shorts instead of unsigned chars - Not sure if I should do this one. 256 ants seems like a nice constraint to have.
 	+ Add more ant types
 	+ Add ^C support for windows
 	+ Test deterministic-ness (Oh god no)
