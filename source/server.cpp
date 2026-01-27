@@ -29,6 +29,7 @@ int main(int argc, char*args[])
     std::string configFile = "";
     int port = -1;
     bool logging = false;
+    bool statsKeeping = false;
     for (int i = 1; i < argc; i++)
     {
         std::string arg = args[i];
@@ -42,11 +43,6 @@ int main(int argc, char*args[])
                         switch (arg[j])
                         {
                             case 'p':
-                                if (prevArg != '\0')
-                                {
-                                    std::cerr << "Please provide an argument to the parameter '-" << prevArg << "' before invoking '-p'." << std::endl;
-                                    return 2;
-                                }
                                 if (port != -1)
                                 {
                                     std::cerr << "Please only use the parameter '-p' once." << std::endl;
@@ -55,11 +51,6 @@ int main(int argc, char*args[])
                                 prevArg = arg[j];
                                 break;
                             case 'f':
-                                if (prevArg != '\0')
-                                {
-                                    std::cerr << "Please provide an argument to the parameter '-" << prevArg << "' before invoking '-" << arg[j] << "'." << std::endl;
-                                    return 2;
-                                }
                                 if (configFile != "")
                                 {
                                     std::cerr << "Please only use the parameter '-f' once." << std::endl;
@@ -72,6 +63,12 @@ int main(int argc, char*args[])
                                 break;
                             case 'L':
                                 logging = false;
+                                break;
+                            case 's':
+                                statsKeeping = true;
+                                break;
+                            case 'S':
+                                statsKeeping = false;
                                 break;
                         }
                     }
@@ -98,6 +95,7 @@ int main(int argc, char*args[])
     }
     Round r;
     r.logging = logging;
+    r.statsKeeping = statsKeeping;
     if (r.open())
     {
         while (r.phase != Round::CLOSED && r.phase != Round::INIT)

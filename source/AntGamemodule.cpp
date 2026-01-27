@@ -30,6 +30,15 @@ static PyMemberDef Pos_members[] = {
 };
 
 
+static PyObject* Pos_dist(PyObject* op, PyObject* args);
+
+
+static PyMethodDef Pos_methods[] = {
+    {"dist", Pos_dist, METH_VARARGS, "Get the distance to another pos."},
+    {nullptr, nullptr, 0, nullptr}
+};
+
+
 static PyTypeObject PosType = {
     .ob_base = PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "AntGame.Pos",
@@ -39,8 +48,33 @@ static PyTypeObject PosType = {
     //TODO
     .tp_doc = PyDoc_STR("Placeholder doc string"),
     .tp_members = Pos_members,
+    .tp_methods = Pos_methods,
     .tp_new = PyType_GenericNew,
 };
+
+
+static PyObject* Pos_dist(PyObject* op, PyObject* args)
+{
+    PosObject* self = (PosObject*)op;
+    PyObject* arg = nullptr;
+    if (PyArg_ParseTuple(args, "O:take", &arg))
+    {
+        if (!arg)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the dist function must be a position!");
+            return nullptr;
+        }
+        if (PyObject_TypeCheck(arg, &PosType) == 0)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the dist function must be a position!");
+            return nullptr;
+        }
+        PosObject* posobj = (PosObject*)arg;
+        double result = (posobj->p-self->p).magnitude();
+        return PyFloat_FromDouble(result);
+    }
+    return nullptr;
+}
 
 
 struct AntGameClientObject
@@ -1828,8 +1862,15 @@ static PyObject* AntType_richcompare(PyObject* op, PyObject* other, int operatio
     }
     else
     {
-        PyErr_SetString(PyExc_TypeError, "Cannot compare an ant type with something that is neither a number or an ant type!");
-        return nullptr;
+        if (operation == Py_EQ)
+        {
+            Py_RETURN_FALSE;
+        }
+        else if (operation == Py_NE)
+        {
+            Py_RETURN_TRUE;
+        }
+        Py_RETURN_NOTIMPLEMENTED;
     }
     if (operation == Py_EQ)
     {
@@ -2096,6 +2137,9 @@ static PyObject* Ant_getisFull(PyObject* op, void*closure)
 }
 
 
+static PyObject* Ant_gettarget(PyObject* op, void*closure);
+
+
 static PyGetSetDef Ant_getsetters[] = {
     {"food", Ant_getfood, nullptr, "ant's food", nullptr},
     {"health", Ant_gethealth, nullptr, "ant's health", nullptr},
@@ -2105,6 +2149,7 @@ static PyGetSetDef Ant_getsetters[] = {
     {"isEnemy", Ant_getisEnemy, nullptr, "whether ant is an enemy", nullptr},
     {"isFull", Ant_getisFull, nullptr, "whether ant has max food", nullptr},
     {"index", Ant_getindex, nullptr, "ant's index in ants list", nullptr},
+    {"target", Ant_gettarget, nullptr, "ant's target", nullptr},
     {nullptr}
 };
 
@@ -2770,6 +2815,39 @@ static PyObject* Ant_goDeliver(PyObject* op, PyObject* args)
 }
 
 
+static PyObject* Ant_stop(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    if (!self->root || self->antID >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->antID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot stop a dead ant!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    else if (self->root->map->antPermanents[self->antID]->parent != self->root->map->nests[self->root->selfNestID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot stop an ant that isn't ours!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    std::string msg;
+    msg.append("\0\0\0\x0d\0\0\0\x02\x0c", 9);
+    msg.append(ConnectionManager::makeAGNPuint(self->antID));
+    if (!self->root->conn->send(msg.c_str(), msg.length()))
+    {
+        AntGameClient_handleConnErrors(self->root->conn);
+        return nullptr;
+    }
+    self->root->reqIDs.push_back(ConnectionManager::RequestID::CANCEL);
+    self->root->map->antPermanents[self->antID]->commands.clear();
+    Py_RETURN_NONE;
+}
+
+
 
 static PyObject* Ant_goAttack(PyObject* op, PyObject* args);
 
@@ -2874,6 +2952,7 @@ static PyMethodDef Ant_methods[] = {
     {"nearestEnemy", Ant_nearestEnemy, METH_NOARGS, "Find the nearest enemy."},
     {"nearestFriend", Ant_nearestFriend, METH_NOARGS, "Find the nearest friend."},
     {"nearestAnt", Ant_nearestAnt, METH_NOARGS, "Find the nearest ant."},
+    {"stop", Ant_stop, METH_NOARGS, "Stop all commands."},
     {nullptr, nullptr, 0, nullptr}
 };
 
@@ -2890,8 +2969,14 @@ static PyObject* Ant_richcompare(PyObject* op, PyObject* other, int operation)
     }
     else
     {
-        PyErr_SetString(PyExc_TypeError, "Cannot compare an ant with something that isn't an ant!");
-        return nullptr;
+        if (operation == Py_EQ)
+        {
+            Py_RETURN_FALSE;
+        }
+        else if (operation == Py_NE)
+        {
+            Py_RETURN_TRUE;
+        }
     }
     if (operation == Py_EQ)
     {
@@ -2926,6 +3011,39 @@ static PyTypeObject AntType = {
     .tp_new = PyType_GenericNew,
     .tp_richcompare = Ant_richcompare,
 };
+
+
+static PyObject* Ant_gettarget(PyObject* op, void*closure)
+{
+    AntObject*self = (AntObject*)op;
+    if (!self->root || !self->root->map || self->antID == UINT_MAX || self->root->map->antPermanents.size() <= self->antID || !self->root->map->antPermanents[self->antID])
+    {
+        Py_RETURN_NONE;
+    }
+    unsigned int other = UINT_MAX;
+    for (Ant::AntCommand acmd : self->root->map->antPermanents[self->antID]->commands)
+    {
+        if (acmd.cmd == Ant::AntCommand::ID::FOLLOW || acmd.cmd == Ant::AntCommand::ID::CFOLLOW || acmd.cmd == Ant::AntCommand::ID::AINTERACT)
+        {
+            other = acmd.arg;
+            break;
+        }
+    }
+    if (other == UINT_MAX || other >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[other])
+    {
+        Py_RETURN_NONE;
+    }
+    AntObject* item = (AntObject*)AntType.tp_alloc(&AntType, 0);
+    if (!item)
+    {
+        return nullptr;
+    }
+    item->root = self->root;
+    item->antID = other;
+    item->echo.type = 0xff;
+    Py_INCREF(item);
+    return (PyObject*)item;
+}
 
 
 static PyObject* Ant_attack(PyObject* op, PyObject* args)

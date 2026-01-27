@@ -44,6 +44,21 @@ class Nest;
 class Ant;
 
 
+class NestStats
+{
+    public:
+    std::string name;
+    double foodTaken;
+    unsigned int antsMade;
+    unsigned int peakAnts;
+    double peakFood;
+    unsigned char rank;
+    double timeLasted;
+    unsigned int kills;
+};
+
+
+
 class Round
 {
     public:
@@ -55,6 +70,8 @@ class Round
     std::chrono::steady_clock::time_point timeLastFrame;
     double deltaTime;
     bool logging = false;
+    bool statsKeeping = false;
+    std::vector<NestStats> deadNestStats;
     volatile static std::sig_atomic_t signalFlag;
 #ifdef ERROR
 #undef ERROR // This is problematic on some windows implementations, apparently
@@ -110,22 +127,13 @@ class Nest
         State state;
         std::uint64_t arg;
     };
-    class NestStats
-    {
-        double foodTaken;
-        unsigned int antsMade;
-        unsigned int peakAnts;
-        double peakFood;
-        unsigned char rank;
-        double timeLasted;
-        unsigned int kills;
-    };
     Map*parent;
     Pos p;
     std::vector<Ant*> ants;
     std::deque<NestCommand> commands;
     double foodCount;
     std::string name;
+    NestStats stats;
     Nest();
     Nest(Map*, Pos); // Takes a parent ptr and a position
     Nest(Map*, Pos, int); // Takes a parent ptr, a position and an ant count

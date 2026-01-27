@@ -354,6 +354,10 @@ void Round::step()
                     n->step(delta);
                     if (n->foodCount <= 0)
                     {
+                        NestStats stat = n->stats;
+                        stat.rank = map->nests.size() - deadNestStats.size();
+                        stat.name = n->name;
+                        deadNestStats.push_back(stat);
                         n->salute();
                         delete n;
                         map->nests[i] = nullptr; // Notice we're not shrinking the array, to preserve IDs
@@ -432,6 +436,13 @@ void Round::end()
         else
         {
             std::cout << " There is no winner (TIE)" << std::endl;
+        }
+        if (statsKeeping)
+        {
+            for (NestStats stat : deadNestStats)
+            {
+                std::cout << stat.name << " is in rank " << stat.rank << ", lasting for " << stat.timeLasted << " seconds. It took " << stat.foodTaken << " food, made " << stat.antsMade << " ants and killed " << stat.kills << ". At most, it had " << stat.peakAnts << " and " << stat.peakFood << " food." << std::endl;
+            }
         }
         std::cout << "Game ran for " << secondsRunning << " seconds." << std::endl;
     }
@@ -748,6 +759,7 @@ void Nest::step(double delta)
                     cmd.state = NestCommand::State::FAIL;
                     break;
                 }
+                stats.antsMade++;
                 foodCount -= Ant::antTypes[cmd.arg].costMod * RoundSettings::instance->antCost;
                 Ant* a = createAnt(cmd.arg);
                 cmd.state = NestCommand::State::SUCCESS;
@@ -759,6 +771,27 @@ void Nest::step(double delta)
                 break;
         }
     }
+    if (ants.size() > stats.peakAnts)
+    {
+        stats.peakAnts = ants.size();
+    }
+    if (foodCount > stats.peakFood)
+    {
+        stats.peakFood = foodCount;
+    }
+    stats.rank = 1;
+    for (Nest*n : parent->nests)
+    {
+        if (!n || n == this)
+        {
+            continue;
+        }
+        if (n->foodCount > foodCount)
+        {
+            stats.rank++;
+        }
+    }
+    stats.timeLasted = Round::instance->secondsRunning;
     for (int i = 0; i < ants.size(); i++)
     {
         Ant* a = ants[i];
@@ -989,6 +1022,7 @@ void Ant::step(double delta)
                                 {
                                     if (foodCarry > 0)
                                     {
+                                        parent->stats.foodTaken += foodCarry;
                                         parent->foodCount += foodCarry;
                                         foodCarry = 0;
                                         ConnectionManager::AntEvent ae;
@@ -1039,6 +1073,10 @@ void Ant::step(double delta)
                 ae.health = ea->health;
                 ae.foodCarry = ea->foodCarry;
                 Round::instance->cm.antEventQueue.push_back(ae);
+                if (ea->health < 0)
+                {
+                    parent->stats.kills++;
+                }
                 break;}
             default:{
                 cmd.state = AntCommand::State::FAIL;
