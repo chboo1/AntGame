@@ -103,10 +103,12 @@ int main(int argc, char*args[])
             auto start = std::chrono::steady_clock::now();
             r.step();
             auto end = std::chrono::steady_clock::now();
-            for (;std::chrono::duration<double>(end-start).count() < 1.0/60.0;end = std::chrono::steady_clock::now())
+            //std::cout << "UFPS: " << 1.0 / std::chrono::duration<double>(end-start).count() << std::endl;
+            for (;std::chrono::duration<double>(end-start).count() * 120.0 < 1.0;end = std::chrono::steady_clock::now())
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
+            //std::cout << "RFPS: " << 1.0 / std::chrono::duration<double>(end-start).count() << std::endl;
         }
         return 0;
     }

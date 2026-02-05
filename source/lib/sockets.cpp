@@ -276,7 +276,7 @@ bool Connection::send(const char* message, size_t len)
         return true;
     }
     int ret;
-    if ((ret = write(sockfd, message, len)) < len)
+    if ((ret = ::send(sockfd, message, len, MSG_NOSIGNAL)) < len)
     {
         if (ret < 0)
         {

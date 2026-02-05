@@ -166,6 +166,7 @@ class Ant
     std::deque<AntCommand> commands;
     double health;
     double foodCarry;
+    std::chrono::high_resolution_clock::time_point lastAINTER;
     Ant();
     Ant(Nest*, DPos); // Takes a parent ptr and a position. Defaults to type = 0
     Ant(Nest*, DPos, unsigned char); // Takes a parent ptr, a position and a type
@@ -177,6 +178,7 @@ class Ant
     struct AntType
     {
         double damageMod;
+        double rateMod;
         double costMod;
         double healthMod;
         double speedMod;
@@ -185,9 +187,9 @@ class Ant
     };
 
     static const constexpr AntType antTypes[] = {
-        {1.0, 1.0, 1.0, 1.0, 3.0, 1.0}, // 0 -> BASE
-        {2.0, 1.5, 0.5, 1.0, 3.0, 1.0}, // 1 -> GLASS CANON
-        {0.5, 1.5, 2.0, 1.0, 3.0, 1.0} // 2 -> TANK
+        {1.0, 1.0, 1.0, 1.0, 1.0, 3.0, 1.0}, // 0 -> BASE
+        {2.0, 1.0, 1.5, 0.5, 1.0, 3.0, 1.0}, // 1 -> GLASS CANON
+        {0.5, 1.0, 1.5, 2.0, 1.0, 3.0, 1.0} // 2 -> TANK
     };
 
     static const unsigned char antTypec = 3;

@@ -345,6 +345,17 @@ void Round::step()
                         break;}
                 }
             }
+            for (Nest*n : map->nests)
+            {
+                if (!n) {continue;}
+                for (int i = 0; i < n->ants.size(); i++)
+                {
+                    if (n->ants[i] == nullptr || n->ants[i]->health <= 0)
+                    {
+                        n->killAnt(i);
+                    }
+                }
+            }
             unsigned int c = 0;
             for (int i = 0; i < map->nests.size(); i++)
             {
@@ -363,17 +374,6 @@ void Round::step()
                         map->nests[i] = nullptr; // Notice we're not shrinking the array, to preserve IDs
                     }
                     else {c++;} // That seems familiar
-                }
-            }
-            for (Nest*n : map->nests)
-            {
-                if (!n) {continue;}
-                for (int i = 0; i < n->ants.size(); i++)
-                {
-                    if (n->ants[i] == nullptr || n->ants[i]->health <= 0)
-                    {
-                        n->killAnt(i);
-                    }
                 }
             }
             if (c <= 1)
@@ -418,7 +418,7 @@ void Round::end()
     // TODO (Round::end) probably OK
     if (logging)
     {
-        std::cout << "The round is over!";
+        std::cout << "\nThe round is over!";
         Nest*winner = nullptr;
         unsigned char winneri = 0;
         for (int i = 0; i < map->nests.size(); i++)
@@ -432,19 +432,25 @@ void Round::end()
         if (winner)
         {
             std::cout << " The winner is " << winner->name << " (Nest " << (unsigned int)winneri << ")" << std::endl;
+            NestStats stat = winner->stats;
+            stat.rank = 1;
+            stat.name = winner->name;
+            stat.timeLasted += winner->foodCount;
+            deadNestStats.push_back(stat);
         }
         else
         {
             std::cout << " There is no winner (TIE)" << std::endl;
         }
+        std::cout << "\n";
         if (statsKeeping)
         {
             for (NestStats stat : deadNestStats)
             {
-                std::cout << stat.name << " is in rank " << stat.rank << ", lasting for " << stat.timeLasted << " seconds. It took " << stat.foodTaken << " food, made " << stat.antsMade << " ants and killed " << stat.kills << ". At most, it had " << stat.peakAnts << " and " << stat.peakFood << " food." << std::endl;
+                std::cout << stat.name << " is in rank " << (unsigned int)stat.rank << ", lasting for " << stat.timeLasted << " seconds.\nIt took " << stat.foodTaken << " food, made " << stat.antsMade << " ants and killed " << stat.kills << ".\nAt most, it had " << stat.peakAnts << " ants and " << stat.peakFood << " food.\n" << std::endl;
             }
         }
-        std::cout << "Game ran for " << secondsRunning << " seconds." << std::endl;
+        std::cout << "Game ran for " << secondsRunning / RoundSettings::instance->timeScale << " seconds (" << secondsRunning << " in-game seconds.)" << std::endl;
     }
     cm.preclose();
     phase = DONE;
@@ -1057,6 +1063,10 @@ void Ant::step(double delta)
                     cmd.state = AntCommand::State::FAIL;
                     break;
                 }
+                if (std::chrono::duration<double>(std::chrono::high_resolution_clock::now()-lastAINTER).count() * RoundSettings::instance->timeScale < RoundSettings::instance->attackRate * Ant::antTypes[type].rateMod)
+                {
+                    break;
+                }
                 if ((parent->parent->antPermanents[cmd.arg]->p - p).magnitude() > RoundSettings::instance->attackRange * Ant::antTypes[type].rangeMod)
                 {
                     if (!moved)
@@ -1073,7 +1083,7 @@ void Ant::step(double delta)
                 ae.health = ea->health;
                 ae.foodCarry = ea->foodCarry;
                 Round::instance->cm.antEventQueue.push_back(ae);
-                if (ea->health < 0)
+                if (ea->health <= 0)
                 {
                     parent->stats.kills++;
                 }

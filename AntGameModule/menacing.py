@@ -1,35 +1,38 @@
 import AntGame
 import os
+import math
 agc = AntGame.AntGameClient()
 
 defaultAnt = AntGame.AntType(0)
-attackMode = False
+
+
+def nextFood(a):
+    if a.isFull:
+        a.goDeliver()
+    else:
+        a.goTake(a.nearestFreeFood())
 
 
 def onStart():
-    global antFoodCost
-    antFoodCost = defaultAnt.cost
     for ant in agc.me.ants:
         ant.goTake(agc.nearestFreeFood())
 
 
 def onFrame():
-    global attackMode
-    if len(agc.me.ants) > 250 and agc.me.food > 300:
-        attackMode = True
+    if len(agc.me.ants) > 250 and agc.me.food > 300 and len(agc.enemies) > 0:
         for ant in agc.me.ants:
-            ant.stop()
             ant.followAttack(ant.nearestEnemy())
+        agc.setCallback(onFrameAttack, "gameFrame")
+        agc.setCallback(None, "antDeliver")
+        agc.setCallback(None, "antGrab")
+        agc.setCallback(None, "antNew")
+        agc.setCallback(None, "antHit")
+        agc.setCallback(onWaitAttack, "antWait")
+
     for ant in agc.me.ants:
-        if attackMode or ant.pos.dist(ant.nearestEnemy().pos) < defaultAnt.attackrange * 1.5:
+        if ant.nearestEnemy() is not None and ant.pos.dist(ant.nearestEnemy().pos) < defaultAnt.attackrange * 3:
             if ant.target != ant.nearestEnemy():
                 ant.followAttack(ant.nearestEnemy())
-
-
-def onWait(ma):
-    global attackMode
-    if attackMode:
-        ma.followAttack(ma.nearestEnemy())
 
 
 def onDeliver(ma):
@@ -46,22 +49,68 @@ def onGrab(ma):
 
 
 def onNewAnt(ma):
-    if ma.type == defaultAnt:
-        ma.goTake(agc.nearestFreeFood())
+    ma.goTake(agc.nearestFreeFood())
+
+
+def onWait(ma):
+    nextFood(ma)
 
 
 def onHurt(ma):
     ma.followAttack(ma.nearestEnemy())
 
 
+def onHit(ma):
+    if ant.nearestEnemy() is None:
+        ma.goDeliver()
+    elif ant.pos.dist(ant.nearestEnemy().pos) > defaultAnt.attackRange * 3:
+        ma.goDeliver()
+    else:
+        ma.followAttack(ma.nearestEnemy())
+
+
+
+
+def onWaitAttack(ma):
+    print("Waiting")
+    ma.followAttack(ma.nearestEnemy())
+    if ma.nearestEnemy() is None:
+        agc.setCallback(onDeliver, "antDeliver")
+        agc.setCallback(onGrab, "antGrab")
+        agc.setCallback(onNewAnt, "antNew")
+        agc.setCallback(onWait, "antWait")
+        agc.setCallback(onFrame, "gameFrame")
+        for ant in agc.me.ants:
+            if ant.isFull:
+                ant.goDeliver()
+            else:
+                ant.goTake(agc.nearestFreeFood())
+
+
+def onFrameAttack():
+    for ant in agc.me.ants:
+        ant.followAttack(ant.nearestEnemy())
+    if len(agc.me.ants) < 1:
+        agc.setCallback(onDeliver, "antDeliver")
+        agc.setCallback(onGrab, "antGrab")
+        agc.setCallback(onNewAnt, "antNew")
+        agc.setCallback(onWait, "antWait")
+        agc.setCallback(onFrame, "gameFrame")
+        agc.setCallback(onHurt, "antHurt")
+        agc.setCallback(onHit, "antHit")
+        for i in range(0, math.floor((agc.me.food-60) / defaultAnt.cost)):
+            agc.newAnt(defaultAnt)
+
+
 
 agc.port = 42069
 agc.name = os.path.basename(__file__)
-agc.setCallback(onDeliver, "antDeliver")
-agc.setCallback(onGrab, "antGrab")
-agc.setCallback(onNewAnt, "antNew")
 agc.setCallback(onStart, "gameStart")
 agc.setCallback(onFrame, "gameFrame")
 agc.setCallback(onWait, "antWait")
+agc.setCallback(onDeliver, "antDeliver")
+agc.setCallback(onGrab, "antGrab")
+agc.setCallback(onNewAnt, "antNew")
 agc.setCallback(onHurt, "antHurt")
+agc.setCallback(onHit, "antHit")
 agc.connect()

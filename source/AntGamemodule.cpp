@@ -113,6 +113,8 @@ struct AntGameClientObject
     std::deque<unsigned int> deliverAnts;
     std::deque<unsigned int> fullAnts;
 
+    std::chrono::steady_clock::time_point lastFrame;
+
     struct
     {
         unsigned int gap;
@@ -202,6 +204,7 @@ static PyObject* AntGameClient_new(PyTypeObject* type, PyObject* args, PyObject 
 
 static PyObject* AntGameClient_getnests(PyObject* op, void *closure);
 static PyObject* AntGameClient_getants(PyObject* op, void *closure);
+static PyObject* AntGameClient_getenemies(PyObject* op, void *closure);
 static PyObject* AntGameClient_getmeid(PyObject* op, void* closure)
 {
     AntGameClientObject*self = (AntGameClientObject*)op;
@@ -295,6 +298,7 @@ static PyObject* AntGameClient_getmapsize(PyObject* op, void* closure)
 static PyGetSetDef AntGameClient_getsetters[] = {
     {"nests", AntGameClient_getnests, nullptr, "map's nests", nullptr},
     {"ants", AntGameClient_getants, nullptr, "map's ants", nullptr},
+    {"enemies", AntGameClient_getenemies, nullptr, "map's enemy ants", nullptr},
     {"meID", AntGameClient_getmeid, nullptr, "this client's ID", nullptr},
     {"me", AntGameClient_getme, nullptr, "this client's nest", nullptr},
     {"addr", AntGameClient_getaddr, AntGameClient_setaddr, "server address", nullptr},
@@ -438,20 +442,9 @@ static bool AntGameClient_callAntCallback(AntGameClientObject* self, PyObject*fu
 
 static bool AntGameClient_frame(AntGameClientObject*self)
 {
-    if (!AntGameClient_callGameCallback(self->onFrame))
-    {
-        return false;
-    }
     for (Ant*a : self->map->nests[self->selfNestID]->ants)
     {
-        if (a->commands.empty())
-        {
-            if (!AntGameClient_callAntCallback(self, self->onWait, a))
-            {
-                return false;
-            }
-        }
-        else
+        if (!a->commands.empty())
         {
             unsigned int followPid = UINT_MAX;
             auto fcmdit = a->commands.end();
@@ -516,6 +509,11 @@ static bool AntGameClient_frame(AntGameClientObject*self)
             }
         }
     }
+    auto now = std::chrono::steady_clock::now();
+    if (!AntGameClient_callGameCallback(self->onFrame))
+    {
+        return false;
+    }
     for (unsigned int pid : self->newAnts)
     {
         if (pid < self->map->antPermanents.size() && self->map->antPermanents[pid] && self->map->antPermanents[pid]->parent == self->map->nests[self->selfNestID])
@@ -571,6 +569,16 @@ static bool AntGameClient_frame(AntGameClientObject*self)
         }
     }
     self->fullAnts.clear();
+    for (Ant*a:self->map->nests[self->selfNestID]->ants)
+    {
+        if (a->commands.empty())
+        {
+            if (!AntGameClient_callAntCallback(self, self->onWait, a))
+            {
+                return false;
+            }
+        }
+    }
     for (Ant a : self->deadAnts)
     {
         if (!AntGameClient_callAntCallback(self, self->onDeath, &a))
@@ -579,6 +587,7 @@ static bool AntGameClient_frame(AntGameClientObject*self)
         }
     }
     self->deadAnts.clear();
+    now = std::chrono::steady_clock::now();
     return true;
 }
 
@@ -599,6 +608,7 @@ static bool AntGameClient_running(AntGameClientObject* self)
     unsigned int dataIndex = 0;
     unsigned int rc = 0;
     bool triggerFrame = false;
+    self->lastFrame = std::chrono::steady_clock::now();
     while (!dead) // Aren't we all
     {
         if (!self->conn->connected())
@@ -670,7 +680,6 @@ static bool AntGameClient_running(AntGameClientObject* self)
                 }
                 if (!corresponds)
                 {
-                    std::cout << (unsigned int)reqResp << std::endl;
                     PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol (replying to nonexistent request). Is this a modified server?");
                     return false;
                 }
@@ -693,6 +702,7 @@ static bool AntGameClient_running(AntGameClientObject* self)
                                 break;
                             case ConnectionManager::ResponseID::CMDFAIL:
                             case ConnectionManager::ResponseID::CMDSUCCESS:{
+                                auto tempStart = std::chrono::high_resolution_clock::now();
                                 if (responsesLen - dataIndex < 1)
                                 {
                                     PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in CMDSUCCESS/FAIL (no space). Is this a modified server?");
@@ -749,17 +759,35 @@ static bool AntGameClient_running(AntGameClientObject* self)
                                         PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in CMDSUCCESS/FAIL (invalid ID). Is this a modified server?");
                                         return false;
                                 }
+                                bool valid = false;
+                                if (antPid != UINT_MAX)
+                                {
+                                    if (self->map->antPermanents.size() > antPid && self->map->antPermanents[antPid])
+                                    {
+                                        for (auto it = self->map->antPermanents[antPid]->commands.begin();it!=self->map->antPermanents[antPid]->commands.end();)
+                                        {
+                                            if ((((*it).cmd == Ant::AntCommand::ID::MOVE && serverCmdId == (unsigned char)ConnectionManager::RequestID::WALK) || ((*it).cmd == Ant::AntCommand::ID::TINTERACT && serverCmdId == (unsigned char)ConnectionManager::RequestID::TINTERACT) || ((*it).cmd == Ant::AntCommand::ID::AINTERACT && serverCmdId == (unsigned char)ConnectionManager::RequestID::AINTERACT)) && serverCmdArg == (*it).arg)
+                                            {
+                                                it = self->map->antPermanents[antPid]->commands.erase(it);
+                                            }
+                                            else
+                                            {
+                                                it++;
+                                            }
+                                        }
+                                    }
+                                }
+                                auto tempDatC = std::chrono::high_resolution_clock::now();
                                 auto IDit = self->cmdIDs.begin();
                                 auto pidit = self->cmdpids.begin();
                                 auto argit = self->cmdargs.begin();
-                                bool valid = false;
                                 while (IDit != self->cmdIDs.end())
                                 {
                                     if ((*IDit) == (ConnectionManager::RequestID)serverCmdId && (*pidit) == antPid && (*argit) == serverCmdArg)
                                     {
-                                        self->cmdIDs.erase(IDit);
-                                        self->cmdpids.erase(pidit);
-                                        self->cmdargs.erase(argit);
+                                        IDit = self->cmdIDs.erase(IDit);
+                                        pidit = self->cmdpids.erase(pidit);
+                                        argit = self->cmdargs.erase(argit);
                                         valid = true;
                                         break;
                                     }
@@ -767,6 +795,7 @@ static bool AntGameClient_running(AntGameClientObject* self)
                                     pidit++;
                                     argit++;
                                 }
+                                auto tempCheck = std::chrono::high_resolution_clock::now();
                                 if (!valid)
                                 {
                                     PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in CMDSUCCESS/FAIL (invalid previous req data). Is this a modified server?");
@@ -788,23 +817,7 @@ static bool AntGameClient_running(AntGameClientObject* self)
                                         self->hitAnts.push_back(antPid);
                                     }
                                 }
-                                if (antPid != UINT_MAX)
-                                {
-                                    if (self->map->antPermanents.size() > antPid && self->map->antPermanents[antPid])
-                                    {
-                                        for (auto it = self->map->antPermanents[antPid]->commands.begin();it!=self->map->antPermanents[antPid]->commands.end();)
-                                        {
-                                            if ((((*it).cmd == Ant::AntCommand::ID::MOVE && serverCmdId == (unsigned char)ConnectionManager::RequestID::WALK) || ((*it).cmd == Ant::AntCommand::ID::TINTERACT && serverCmdId == (unsigned char)ConnectionManager::RequestID::TINTERACT) || ((*it).cmd == Ant::AntCommand::ID::AINTERACT && serverCmdId == (unsigned char)ConnectionManager::RequestID::AINTERACT)) && serverCmdArg == (*it).arg)
-                                            {
-                                                it = self->map->antPermanents[antPid]->commands.erase(it);
-                                            }
-                                            else
-                                            {
-                                                it++;
-                                            }
-                                        }
-                                    }
-                                }
+                                auto tempEnd = std::chrono::high_resolution_clock::now();
                                 break;}
                             default:
                                 PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol (invalid unsolicited response). Is this a modified server?");
@@ -1025,10 +1038,13 @@ static bool AntGameClient_running(AntGameClientObject* self)
             if (triggerFrame)
             {
                 triggerFrame = false;
+                auto now = std::chrono::steady_clock::now();
                 if (!AntGameClient_frame(self))
                 {
                     return false;
                 }
+                now = std::chrono::steady_clock::now();
+                self->lastFrame = now;
             }
         }
     }
@@ -1524,7 +1540,11 @@ static PyObject* AntGameClient_setCallback(PyObject*op, PyObject*args)
     const char* callbackType = nullptr;
     if (PyArg_ParseTuple(args, "Os:setCallback", &func, &callbackType))
     {
-        if (!PyCallable_Check(func))
+        if (func == Py_None)
+        {
+            func = nullptr;
+        }
+        else if (!PyCallable_Check(func))
         {
             PyErr_SetString(PyExc_TypeError, "Callback to set must be a function!");
             return nullptr;
@@ -2268,7 +2288,7 @@ static bool Ant_sendTake(AntObject*self, Pos t)
     self->root->reqIDs.push_back(ConnectionManager::RequestID::TINTERACT);
     self->root->cmdIDs.push_back(ConnectionManager::RequestID::TINTERACT);
     self->root->cmdpids.push_back(self->antID);
-    self->root->cmdargs.push_back(((unsigned int)t.x<<16) + (unsigned int)t.y);
+    self->root->cmdargs.push_back(((unsigned int)t.x<<16)+(unsigned int)t.y);
     Ant::AntCommand acmd;
     acmd.cmd = Ant::AntCommand::ID::TINTERACT;
     acmd.state = Ant::AntCommand::State::ONGOING;
@@ -2381,7 +2401,7 @@ static bool AntGameClient_continueFollow(AntGameClientObject* agc, unsigned int 
     agc->cmdargs.push_back(((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t->p.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t->p.y));
     a->commands.clear();
     Ant::AntCommand acmd;
-    acmd.cmd = Ant::AntCommand::ID::CFOLLOW;
+    acmd.cmd = Ant::AntCommand::ID::FOLLOW;
     acmd.state = Ant::AntCommand::State::ONGOING;
     acmd.arg = other;
     a->commands.push_back(acmd);
@@ -2835,7 +2855,7 @@ static PyObject* Ant_stop(PyObject* op, PyObject* args)
         Py_RETURN_NONE;
     }
     std::string msg;
-    msg.append("\0\0\0\x0d\0\0\0\x02\x0c", 9);
+    msg.append("\0\0\0\x0d\0\0\0\x01\x0c", 9);
     msg.append(ConnectionManager::makeAGNPuint(self->antID));
     if (!self->root->conn->send(msg.c_str(), msg.length()))
     {
@@ -3288,10 +3308,10 @@ static PyObject* Ant_nearestEnemy(PyObject* op, PyObject* args)
         {
             continue;
         }
-        if (i->pid != self->antID && i->parent != self->root->map->nests[self->root->selfNestID] && (a == nullptr || (p-i->p).magnitude() < bestDist))
+        if (i->pid != self->antID && i->parent != self->root->map->nests[self->root->selfNestID] && (a == nullptr || (p.x-i->p.x)*(p.x-i->p.x)+(p.y-i->p.y)*(p.y-i->p.y) < bestDist))
         {
             a = i;
-            bestDist = (p-i->p).magnitude();
+            bestDist = (p.x-i->p.x)*(p.x-i->p.x)+(p.y-i->p.y)*(p.y-i->p.y);
         }
     }
     if (!a)
@@ -3341,10 +3361,10 @@ static PyObject* Ant_nearestFriend(PyObject* op, PyObject* args)
         {
             continue;
         }
-        if (i->pid != self->antID && i->parent == self->root->map->nests[self->root->selfNestID] && (a == nullptr || (p-i->p).magnitude() < bestDist))
+        if (i->pid != self->antID && i->parent == self->root->map->nests[self->root->selfNestID] && (a == nullptr || (p.x-i->p.x)*(p.x-i->p.x)+(p.y-i->p.y)*(p.y-i->p.y) < bestDist))
         {
             a = i;
-            bestDist = (p-i->p).magnitude();
+            bestDist = (p.x-i->p.x)*(p.x-i->p.x)+(p.y-i->p.y)*(p.y-i->p.y);
         }
     }
     if (!a)
@@ -3394,10 +3414,10 @@ static PyObject* Ant_nearestAnt(PyObject* op, PyObject* args)
         {
             continue;
         }
-        if (i->pid != self->antID && (a == nullptr || (p-i->p).magnitude() < bestDist))
+        if (i->pid != self->antID && (a == nullptr || (p.x-i->p.x)*(p.x-i->p.x)+(p.y-i->p.y)*(p.y-i->p.y) < bestDist))
         {
             a = i;
-            bestDist = (p-i->p).magnitude();
+            bestDist = (p.x-i->p.x)*(p.x-i->p.x)+(p.y-i->p.y)*(p.y-i->p.y);
         }
     }
     if (!a)
@@ -3475,6 +3495,54 @@ static PyObject* AntGameClient_getants(PyObject* op, void *closure)
     for (unsigned int i = 0; i < self->map->antPermanents.size(); i++)
     {
         if (!self->map->antPermanents[i])
+        {
+            continue;
+        }
+        AntObject* item = (AntObject*)AntType.tp_alloc(&AntType, 0);
+        if (!item)
+        {
+            Py_DECREF(ret);
+            return nullptr;
+        }
+        item->root = self;
+        item->antID = i;
+        item->echo.type = 0xff;
+        Py_INCREF(item);
+        PyList_SetItem(ret, j, (PyObject*)item);
+        j++;
+    }
+    return ret;
+}
+
+
+static PyObject* AntGameClient_getenemies(PyObject* op, void *closure)
+{
+    AntGameClientObject*self = (AntGameClientObject*)op;
+    if (self->map == nullptr || self->map->antPermanents.empty() || self->selfNestID == 0xff)
+    {
+        return PyList_New(0);
+    }
+    unsigned int amount = 0;
+    for (Ant*a : self->map->antPermanents)
+    {
+        if (a && a->parent != self->map->nests[self->selfNestID])
+        {
+            amount++;
+        }
+    }
+    PyObject* ret = PyList_New(amount);
+    if (!ret)
+    {
+        return nullptr;
+    }
+    unsigned int j = 0;
+    for (unsigned int i = 0; i < self->map->antPermanents.size(); i++)
+    {
+        if (!self->map->antPermanents[i])
+        {
+            continue;
+        }
+        if (self->map->nests[self->selfNestID] == self->map->antPermanents[i]->parent)
         {
             continue;
         }

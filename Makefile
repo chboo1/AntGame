@@ -54,9 +54,12 @@ endif
 bin/mapMaker: source/resources/mapMaker.cpp
 	g++ source/resources/mapMaker.cpp -o bin/mapMaker
 
+bin/mapMakerSmall: source/resources/mapMakerSmall.cpp
+	g++ source/resources/mapMakerSmall.cpp -o bin/mapMakerSmall
+
 libs: out/*.o
 
-res: bin/mapMaker
+res: bin/mapMaker bin/mapMakerSmall
 
 server: bin/AntGameServer
 

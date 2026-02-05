@@ -196,6 +196,15 @@ void RoundSettings::configLine(std::string identifier, std::string data)
 	std::cerr << "The `attackrange' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
 	}
     }
+    else if (identifier == "attackrate")
+    {
+	try{
+	attackRate = std::stod(data);
+	}catch(...){
+        attackRate = 0.1;
+	std::cerr << "The `attackrate' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
+	}
+    }
     else if (identifier == "attackdmg")
     {
 	try{
@@ -428,9 +437,7 @@ void ConnectionManager::handlePlayers()
         {
             p->nestID = nid;
         }
-        //std::cout << "a" << std::endl;
 	p->toClose = !interpretRequests(p) || p->toClose;
-        //std::cout << "b" << std::endl;
         if (!p->toClose)
         {
             std::string feedbackString = "";
@@ -478,8 +485,12 @@ void ConnectionManager::handlePlayers()
             }
             for (Ant* a : Round::instance->map->nests[p->nestID]->ants)
             {
-                for (Ant::AntCommand acmd : a->commands)
+                for (Ant::AntCommand& acmd : a->commands)
                 {
+                    if (a->health <= 0)
+                    {
+                        acmd.state = Ant::AntCommand::State::FAIL;
+                    }
                     if (acmd.state == Ant::AntCommand::State::ONGOING)
                     {
                         continue;
@@ -519,18 +530,15 @@ void ConnectionManager::handlePlayers()
                             break;
                     }
                 }
-                cleared = false;
-                while (!cleared)
+                for (auto it = a->commands.begin(); it != a->commands.end();)
                 {
-                    cleared = true;
-                    for (std::deque<Ant::AntCommand>::iterator it = a->commands.begin(); it != a->commands.end();it++)
+                    if((*it).state != Ant::AntCommand::State::ONGOING)
                     {
-                        if ((*it).state != Ant::AntCommand::State::ONGOING)
-                        {
-                            a->commands.erase(it);
-                            cleared = false;
-                            break;
-                        }
+                        it = a->commands.erase(it);
+                    }
+                    else
+                    {
+                        it++;
                     }
                 }
             }
@@ -785,6 +793,14 @@ bool ConnectionManager::httpResponse(Viewer* v)
         }
         else if (data.compare(data.find(' ') + 1, 17, "/changelogMapData") == 0)
         {
+            if (Round::instance->phase != Round::Phase::RUNNING)
+            {
+                sendResponse(v, "HTTP/1.1 404 Not Found\r\nConnection: close\r\n", "HTTPFiles/err404.html");
+                data.erase(data.begin(), data.begin() + data.find("\r\n\r\n") + 4);
+                v->unusedData = data;
+                v->toClose = true;
+                return false;
+            }
             std::string changelogData = "";
             unsigned int clientAt = 0;
             changelogData = data.substr(data.find(' ') + 1, data.find(' ', data.find(' ') + 1) - data.find(' '));
@@ -843,7 +859,6 @@ bool ConnectionManager::httpResponse(Viewer* v)
                 }
             }
             changelogData.append(makeAGNPuint(mapEventQueue.size()));
-            //std::cout << "Changelog data " << DEBUGstringToHex(changelogData) << std::endl;
             _sendResponse(v, "HTTP/1.1 200 OK\r\nConnection: keep-alive\r\n", changelogData);
             data.erase(data.begin(), data.begin() + data.find("\r\n\r\n") + 4);
             v->unusedData = data;
@@ -897,7 +912,17 @@ bool ConnectionManager::httpResponse(Viewer* v)
                         playersData.append(" (Nest ");
                         playersData.append(std::to_string(i));
                         playersData.append(", ");
-                        playersData.append(n->foodCount > 0 ? std::to_string((unsigned int)std::ceil(n->foodCount)) : "DEAD");
+                        if (n->foodCount > 0)
+                        {
+                            playersData.append(std::to_string((unsigned int)std::ceil(n->foodCount)));
+                            playersData.append(" food, ");
+                            playersData.append(std::to_string((unsigned int)n->ants.size()));
+                            playersData.append(" ants.");
+                        }
+                        else
+                        {
+                            playersData.append("DEAD");
+                        }
                         playersData.append(")</li>");
                     }
                     else
@@ -906,6 +931,60 @@ bool ConnectionManager::httpResponse(Viewer* v)
                         playersData.append(std::to_string(i));
                         playersData.append(")</li>");
                     }
+                }
+                if (Round::instance->statsKeeping)
+                {
+                    if (!Round::instance->deadNestStats.empty())
+                    {
+                        playersData.append("Dead nests:<ul>");
+                    }
+                    for (NestStats ns : Round::instance->deadNestStats)
+                    {
+                        playersData.append("<li>");
+                        playersData.append(ns.name);
+                        playersData.append(": Rank ");
+                        playersData.append(std::to_string((int)(unsigned int)ns.rank));
+                        playersData.append(", lasted for "); 
+                        playersData.append(std::to_string((int)ns.timeLasted));
+                        playersData.append(" seconds. Took ");
+                        playersData.append(std::to_string((int)ns.foodTaken));
+                        playersData.append(" food, killed ");
+                        playersData.append(std::to_string(ns.kills));
+                        playersData.append(" ants, made ");
+                        playersData.append(std::to_string(ns.antsMade));
+                        playersData.append(". At most, had ");
+                        playersData.append(std::to_string((int)ns.peakFood));
+                        playersData.append(" food and ");
+                        playersData.append(std::to_string(ns.peakAnts));
+                        playersData.append(" ants.</li>");
+                    }
+                    if (!Round::instance->deadNestStats.empty())
+                    {
+                        playersData.append("</ul>");
+                    }
+                    playersData.append("Living nests:<ul>");
+                    for (Nest* n : Round::instance->map->nests)
+                    {
+                        if (n)
+                        {
+                            playersData.append("<li>");
+                            playersData.append(n->name);
+                            playersData.append(": Rank ");
+                            playersData.append(std::to_string((int)(unsigned int)n->stats.rank));
+                            playersData.append(". Took ");
+                            playersData.append(std::to_string((int)n->stats.foodTaken));
+                            playersData.append(" food, killed ");
+                            playersData.append(std::to_string((int)n->stats.kills));
+                            playersData.append(" ants, made ");
+                            playersData.append(std::to_string(n->stats.antsMade));
+                            playersData.append(". At most, had ");
+                            playersData.append(std::to_string((int)n->stats.peakFood));
+                            playersData.append(" food and ");
+                            playersData.append(std::to_string(n->stats.peakAnts));
+                            playersData.append(" ants.</li>");
+                        }
+                    }
+                    playersData.append("</ul>");
                 }
                 if (playersData.empty()) {playersData = "None!";}
                 _sendResponse(v, "HTTP/1.1 200 OK\r\nConnection: keep-alive\r\n", playersData);
@@ -1178,35 +1257,54 @@ bool ConnectionManager::interpretRequests(Player* p)
     {
         return false;
     }
-    if (p->messageSizeLeft == 0)
+    for (unsigned int requestGroupCount = 0; ((p->messageSizeLeft == 0 && data.length() >= 8) || (p->messageSizeLeft > 0 && data.length() >= p->messageSizeLeft)) && requestGroupCount < 1024; requestGroupCount++)
     {
-        p->messageRequestsLeft = 0;
-        if (data.length() >= 8)
+        if (p->messageSizeLeft == 0)
         {
-            p->messageSizeLeft = getAGNPuint(data) - 8;
-            data.erase(0, 4);
-            p->messageRequestsLeft = getAGNPuint(data);
-            data.erase(0, 4);
-        }
-    }
-    if (p->messageSizeLeft > 0 && data.length() >= p->messageSizeLeft)
-    {
-        p->timeAtLastMessage = std::chrono::steady_clock::now();
-        std::string responses = "";
-        std::uint32_t rq = 0;
-        unsigned char unfinishedReq = 0;
-        for (;p->messageRequestsLeft > 0; p->messageRequestsLeft--)
-        {
-            if (p->messageSizeLeft < 1)
+            p->messageRequestsLeft = 0;
+            if (data.length() >= 8)
             {
-                break;
+                p->messageSizeLeft = getAGNPuint(data) - 8;
+                data.erase(0, 4);
+                p->messageRequestsLeft = getAGNPuint(data);
+                data.erase(0, 4);
             }
-            unsigned char id = data[0];
-            data.erase(0, 1);
-            p->messageSizeLeft -= 1;
-            if (id == (unsigned char)RequestID::BYE)
+        }
+        if (p->messageSizeLeft > 0 && data.length() >= p->messageSizeLeft)
+        {
+            p->timeAtLastMessage = std::chrono::steady_clock::now();
+            std::string responses = "";
+            std::uint32_t rq = 0;
+            unsigned char unfinishedReq = 0;
+            for (;p->messageRequestsLeft > 0; p->messageRequestsLeft--)
             {
-                if (!p->bye)
+                if (p->messageSizeLeft < 1)
+                {
+                    break;
+                }
+                unsigned char id = data[0];
+                data.erase(0, 1);
+                p->messageSizeLeft -= 1;
+                if (id == (unsigned char)RequestID::BYE)
+                {
+                    if (!p->bye)
+                    {
+                        if (responses.length() > UINT32_MAX-10)
+                        {
+                            std::string msg = "";
+                            msg.append(makeAGNPuint(responses.length() + 8));
+                            msg.append(makeAGNPuint(rq));
+                            msg.append(responses);
+                            p->conn->send(msg.c_str(), msg.length());
+                            rq = 0;
+                            responses = "";
+                        }
+                        responses.append("\x02\x03", 2);
+                    }
+                    p->toClose = true;
+                    break;
+                }
+                else if (id == (unsigned char)RequestID::JOIN)
                 {
                     if (responses.length() > UINT32_MAX-10)
                     {
@@ -1218,539 +1316,542 @@ bool ConnectionManager::interpretRequests(Player* p)
                         rq = 0;
                         responses = "";
                     }
-                    responses.append("\x02\x03", 2);
+                    responses.append("\0\x01", 2);
                 }
-                p->toClose = true;
-                break;
-            }
-            else if (id == (unsigned char)RequestID::JOIN)
-            {
-                if (responses.length() > UINT32_MAX-10)
+                else if (id == (unsigned char)RequestID::PING)
+                {
+                    if (p->pinged)
+                    {
+                        p->pinged = false; // This is of the only things the server does not respond to
+                    }
+                    else
+                    {
+                        if (responses.length() > UINT32_MAX-10)
+                        {
+                            std::string msg = "";
+                            msg.append(makeAGNPuint(responses.length()+8));
+                            msg.append(makeAGNPuint(rq));
+                            msg.append(responses);
+                            p->conn->send(msg.c_str(), msg.length());
+                            rq = 0;
+                            responses = "";
+                        }
+                        responses.append("\x01\x02", 2);
+                    }
+                }
+                else if (id == (unsigned char)RequestID::SETTINGS)
                 {
                     std::string msg = "";
-                    msg.append(makeAGNPuint(responses.length() + 8));
-                    msg.append(makeAGNPuint(rq));
-                    msg.append(responses);
-                    p->conn->send(msg.c_str(), msg.length());
-                    rq = 0;
-                    responses = "";
-                }
-                responses.append("\0\x01", 2);
-            }
-            else if (id == (unsigned char)RequestID::PING)
-            {
-                if (p->pinged)
-                {
-                    p->pinged = false; // This is of the only things the server does not respond to
-                }
-                else
-                {
-                    if (responses.length() > UINT32_MAX-10)
+                    if (responses.length() > 0)
                     {
-                        std::string msg = "";
                         msg.append(makeAGNPuint(responses.length()+8));
                         msg.append(makeAGNPuint(rq));
                         msg.append(responses);
                         p->conn->send(msg.c_str(), msg.length());
-                        rq = 0;
+                        msg.clear();
                         responses = "";
                     }
-                    responses.append("\x01\x02", 2);
-                }
-            }
-            else if (id == (unsigned char)RequestID::SETTINGS)
-            {
-                std::string msg = "";
-                if (responses.length() > 0)
-                {
-                    msg.append(makeAGNPuint(responses.length()+8));
-                    msg.append(makeAGNPuint(rq));
-                    msg.append(responses);
-                    p->conn->send(msg.c_str(), msg.length());
-                    msg.clear();
-                    responses = "";
-                }
-                rq = UINT_MAX;
-                std::ifstream inf(RoundSettings::instance->configFile, std::ios::in | std::ios::ate);
-                if (!inf.is_open())
-                {
-                    p->conn->send("\0\0\0\x0e\0\0\0\x01\x05\x05\0\0\0\0", 14); // OK DATA [""]
-                }
-                else
-                {
-                    unsigned int configFileSize = inf.tellg();
-                    inf.seekg(0);
-                    msg = makeAGNPuint(configFileSize + 14);
-                    msg.append("\0\0\0\x01\x05\x05", 6);
-                    msg.append(makeAGNPuint(configFileSize));
-                    p->conn->send(msg.c_str(), msg.length());
-                    char buf[4096];
-                    unsigned int bytesSent = 0;
-                    for(;;)
+                    rq = UINT_MAX;
+                    std::ifstream inf(RoundSettings::instance->configFile, std::ios::in | std::ios::ate);
+                    if (!inf.is_open())
                     {
-                        if (!inf.read(buf, 4096).bad())
-                        {
-                            std::string temp;
-                            temp.append(buf, inf.gcount());
-                            p->conn->send(buf, inf.gcount());
-                            bytesSent += inf.gcount();
-                        }
-                        else {break;}
-                        if (inf.gcount() < 4096) {break;}
-                    }
-		    inf.close();
-                }
-            }
-            else if (id == (unsigned char)RequestID::MAP)
-            {
-                std::string msg = "";
-                if (responses.length() > 0)
-                {
-                    msg.append(makeAGNPuint(responses.length()+8));
-                    msg.append(makeAGNPuint(rq));
-                    msg.append(responses);
-                    p->conn->send(msg.c_str(), msg.length());
-                    msg.clear();
-                    responses = "";
-                }
-                rq = UINT_MAX;
-                std::uint64_t antc = 0;
-                for (Nest* n : Round::instance->map->nests) {if (n) {antc += n->ants.size();}}
-                msg.reserve(5UL + (std::uint64_t)Round::instance->map->nests.size() * 13UL + antc * 29UL);
-                msg.append(makeAGNPushort(Round::instance->map->size.x));
-                msg.append(makeAGNPushort(Round::instance->map->size.y));
-                msg.push_back((char)(unsigned char)Round::instance->map->nests.size());
-                for (Nest* n : Round::instance->map->nests)
-                {
-                    if (n)
-                    {
-                        msg.append(makeAGNPdoublestr(n->foodCount));
-                        msg.append(makeAGNPushort(n->p.x));
-                        msg.append(makeAGNPushort(n->p.y));
-                        msg.push_back((char)(unsigned char)n->ants.size());
-                        for (Ant * a : n->ants)
-                        {
-                            msg.append(makeAGNPuint(makeAGNPshortdouble(a->p.x)));
-                            msg.append(makeAGNPuint(makeAGNPshortdouble(a->p.y)));
-                            msg.push_back((char)a->type);
-                            msg.append(makeAGNPuint(a->pid));
-                            msg.append(makeAGNPdoublestr(a->health));
-                            msg.append(makeAGNPdoublestr(a->foodCarry));
-                        }
+                        p->conn->send("\0\0\0\x0e\0\0\0\x01\x05\x05\0\0\0\0", 14); // OK DATA [""]
                     }
                     else
                     {
-                        msg.append("\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\0", 13);
+                        unsigned int configFileSize = inf.tellg();
+                        inf.seekg(0);
+                        msg = makeAGNPuint(configFileSize + 14);
+                        msg.append("\0\0\0\x01\x05\x05", 6);
+                        msg.append(makeAGNPuint(configFileSize));
+                        p->conn->send(msg.c_str(), msg.length());
+                        char buf[4096];
+                        unsigned int bytesSent = 0;
+                        for(;;)
+                        {
+                            if (!inf.read(buf, 4096).bad())
+                            {
+                                std::string temp;
+                                temp.append(buf, inf.gcount());
+                                p->conn->send(buf, inf.gcount());
+                                bytesSent += inf.gcount();
+                            }
+                            else {break;}
+                            if (inf.gcount() < 4096) {break;}
+                        }
+            	    inf.close();
                     }
                 }
-                std::string head = "";
-                head.append(makeAGNPuint(10+msg.length()+(unsigned int)Round::instance->map->size.x*(unsigned int)Round::instance->map->size.y));
-                head.append(makeAGNPuint(1));
-                head.append("\x09\x05", 2);
-                p->conn->send(head.c_str(), head.length());
-                p->conn->send(msg.c_str(), msg.length());
-                p->conn->send((char*)Round::instance->map->map, (unsigned int)Round::instance->map->size.x * (unsigned int)Round::instance->map->size.y);
-                p->antEventPos = --antEventQueue.end();
-                p->mapEventPos = --mapEventQueue.end();
-            }
-            else
-            {
-                bool endLoop = false;
-                switch (Round::instance->phase)
+                else if (id == (unsigned char)RequestID::MAP)
                 {
-                    case Round::Phase::INIT:
-                    case Round::Phase::DONE:
-                    case Round::Phase::CLOSED:
-                    case Round::Phase::ERROR:
-                        endLoop = true;
-                        break;
-                    case Round::Phase::WAIT:
-                        switch (id)
+                    std::string msg = "";
+                    if (responses.length() > 0)
+                    {
+                        msg.append(makeAGNPuint(responses.length()+8));
+                        msg.append(makeAGNPuint(rq));
+                        msg.append(responses);
+                        p->conn->send(msg.c_str(), msg.length());
+                        msg.clear();
+                        responses = "";
+                    }
+                    rq = UINT_MAX;
+                    std::uint64_t antc = 0;
+                    for (Nest* n : Round::instance->map->nests) {if (n) {antc += n->ants.size();}}
+                    msg.reserve(5UL + (std::uint64_t)Round::instance->map->nests.size() * 13UL + antc * 29UL);
+                    msg.append(makeAGNPushort(Round::instance->map->size.x));
+                    msg.append(makeAGNPushort(Round::instance->map->size.y));
+                    msg.push_back((char)(unsigned char)Round::instance->map->nests.size());
+                    for (Nest* n : Round::instance->map->nests)
+                    {
+                        if (n)
                         {
-                            case (unsigned char)RequestID::NAME:{
-                                if (p->messageSizeLeft < 1)
-                                {
-                                    unfinishedReq = id;
-				                    break;
-                                }
-                                unsigned char nameSize = (unsigned char)data[0];
-                                if (nameSize > 128) {nameSize = 128;}
-                                p->messageSizeLeft -= 1;
-                                data.erase(0, 1);
-                                if (p->messageSizeLeft < nameSize)
-                                {
-                                    unfinishedReq = id;
-                                    break;
-                                }
-                                p->name = "";
-                                p->name.reserve(nameSize);
-                                for (int i = 0; i < nameSize; i++)
-                                {
-                                    if ((int)data[i] >= 32 && (int)data[i] <= 126)
-                                    {
-                                        switch(data[i])
-                                        {
-                                            case '<':
-                                                p->name.append("&lt;");
-                                                break;
-                                            case '>':
-                                                p->name.append("&gt;");
-                                                break;
-                                            case '&':
-                                                p->name.append("&amp;");
-                                                break;
-                                            case '\'':
-                                                p->name.append("&apos;");
-                                                break;
-                                            case '"':
-                                                p->name.append("&quot;");
-                                                break;
-                                            default:
-                                                p->name.push_back(data[i]);
-                                                break;
-                                        }
-                                    }
-                                }
-                                data.erase(0, nameSize);
-                                p->messageSizeLeft -= nameSize;
-                                if (responses.length() > UINT32_MAX-10)
-                                {
-                                    std::string msg = "";
-                                    msg.append(makeAGNPuint(responses.length()+8));
-                                    msg.append(makeAGNPuint(rq));
-                                    msg.append(responses);
-                                    p->conn->send(msg.c_str(), msg.length());
-                                    rq = 0;
-                                    responses = "";
-                                }
-                                responses.append("\x03\0", 2);
-                                break;}
-                            default:{
-                                if (responses.length() > UINT32_MAX-10)
-                                {
-                                    std::string msg = "";
-                                    msg.append(makeAGNPuint(responses.length()+8));
-                                    msg.append(makeAGNPuint(rq));
-                                    msg.append(responses);
-                                    p->conn->send(msg.c_str(), msg.length());
-                                    rq = 0;
-                                    responses = "";
-                                }
-                                responses.push_back((char)id);
-                                responses.append("\x01", 1);
-                                break;}
+                            msg.append(makeAGNPdoublestr(n->foodCount));
+                            msg.append(makeAGNPushort(n->p.x));
+                            msg.append(makeAGNPushort(n->p.y));
+                            msg.push_back((char)(unsigned char)n->ants.size());
+                            for (Ant * a : n->ants)
+                            {
+                                msg.append(makeAGNPuint(makeAGNPshortdouble(a->p.x)));
+                                msg.append(makeAGNPuint(makeAGNPshortdouble(a->p.y)));
+                                msg.push_back((char)a->type);
+                                msg.append(makeAGNPuint(a->pid));
+                                msg.append(makeAGNPdoublestr(a->health));
+                                msg.append(makeAGNPdoublestr(a->foodCarry));
+                            }
                         }
-                        break;
-                    case Round::Phase::RUNNING:
-                        switch (id)
+                        else
                         {
-                            case (unsigned char)RequestID::TINTERACT:{
-                                if (p->messageSizeLeft < 8)
-                                {
-                                    unfinishedReq = id;
-                                    break;
-                                }
-                                if (responses.length() > UINT32_MAX-10)
-                                {
-                                    std::string msg = "";
-                                    msg.append(makeAGNPuint(responses.length()+8));
-                                    msg.append(makeAGNPuint(rq));
-                                    msg.append(responses);
-                                    p->conn->send(msg.c_str(), msg.length());
-                                    rq = 0;
-                                    responses = "";
-                                }
-                                p->messageSizeLeft -= 8;
-                                Command cmd;
-                                cmd.nestID = p->nestID;
-                                cmd.antID = getAGNPuint(data);
-                                data.erase(0, 4);
-                                cmd.cmd = Command::ID::TINTERACT;
-                                cmd.arg = getAGNPuint(data);
-                                data.erase(0, 4);
-                                if (cmd.antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[cmd.antID] || Round::instance->map->antPermanents[cmd.antID]->commands.size() >= 0xff || Round::instance->map->antPermanents[cmd.antID]->parent != Round::instance->map->nests[p->nestID])
-                                {
-                                    responses.append("\x06\x01", 2);
-                                }
-                                else
-                                {
-                                    commands.push_back(cmd);
-                                    responses.append("\x06\0", 2);
-                                }
-                                break;}
-                            case (unsigned char)RequestID::WALK:{
-                                if (p->messageSizeLeft < 12)
-                                {
-                                    unfinishedReq = id;
-                                    break;
-                                }
-                                if (responses.length() > UINT32_MAX-10)
-                                {
-                                    std::string msg = "";
-                                    msg.append(makeAGNPuint(responses.length()+8));
-                                    msg.append(makeAGNPuint(rq));
-                                    msg.append(responses);
-                                    p->conn->send(msg.c_str(), msg.length());
-                                    rq = 0;
-                                    responses = "";
-                                }
-                                p->messageSizeLeft -= 12;
-                                Command cmd;
-                                cmd.nestID = p->nestID;
-                                cmd.antID = getAGNPuint(data);
-                                data.erase(0, 4);
-                                cmd.cmd = Command::ID::MOVE;
-                                cmd.arg = getAGNPuint(data);
-                                cmd.arg<<=32;
-                                data.erase(0, 4);
-                                cmd.arg += getAGNPuint(data);
-                                data.erase(0, 4);
-                                if (cmd.antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[cmd.antID] || Round::instance->map->antPermanents[cmd.antID]->commands.size() >= 0xff || Round::instance->map->antPermanents[cmd.antID]->parent != Round::instance->map->nests[p->nestID])
-                                {
-                                    responses.append("\x04\x01", 2);
-                                }
-                                else
-                                {
-                                    commands.push_back(cmd);
-                                    responses.append("\x04\0", 2);
-                                }
-                                break;}
-                            case (unsigned char)RequestID::AINTERACT:{
-                                if (p->messageSizeLeft < 8)
-                                {
-                                    unfinishedReq = id;
-                                    break;
-                                }
-                                if (responses.length() > UINT32_MAX-10)
-                                {
-                                    std::string msg = "";
-                                    msg.append(makeAGNPuint(responses.length()+8));
-                                    msg.append(makeAGNPuint(rq));
-                                    msg.append(responses);
-                                    p->conn->send(msg.c_str(), msg.length());
-                                    rq = 0;
-                                    responses = "";
-                                }
-                                p->messageSizeLeft -= 8;
-                                Command cmd;
-                                cmd.nestID = p->nestID;
-                                cmd.antID = getAGNPuint(data);
-                                data.erase(0, 4);
-                                cmd.cmd = Command::ID::AINTERACT;
-                                cmd.arg = getAGNPuint(data);
-                                data.erase(0, 4);
-                                if (cmd.antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[cmd.antID] || Round::instance->map->antPermanents[cmd.antID]->commands.size() >= 0xff || Round::instance->map->antPermanents[cmd.antID]->parent != Round::instance->map->nests[p->nestID])
-                                {
-                                    responses.append("\x07\x01", 2);
-                                }
-                                else
-                                {
-                                    commands.push_back(cmd);
-                                    responses.append("\x07\0", 2);
-                                }
-                                break;}
-                            case (unsigned char)RequestID::CANCEL:{
-                                if (p->messageSizeLeft < 4)
-                                {
-                                    unfinishedReq = id;
-                                    break;
-                                }
-                                if (responses.length() > UINT32_MAX-10)
-                                {
-                                    std::string msg = "";
-                                    msg.append(makeAGNPuint(responses.length()+8));
-                                    msg.append(makeAGNPuint(rq));
-                                    msg.append(responses);
-                                    p->conn->send(msg.c_str(), msg.length());
-                                    rq = 0;
-                                    responses = "";
-                                }
-                                p->messageSizeLeft -= 4;
-                                unsigned int antID = getAGNPuint(data);
-                                data.erase(0, 4);
-                                if (antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[antID] || Round::instance->map->antPermanents[antID]->parent != Round::instance->map->nests[p->nestID])
-                                {
-                                    responses.append("\x0c\x01", 2);
-                                }
-                                else
-                                {
-                                    responses.append("\x0c\0", 2);
-                                    Round::instance->map->antPermanents[antID]->commands.clear();
-                                }
-                                break;}
-                            case (unsigned char)RequestID::NEWANT:{
-                                if (p->messageSizeLeft < 1)
-                                {
-                                    unfinishedReq = id;
-                                    break;
-                                }
-                                if (responses.length() > UINT32_MAX-10)
-                                {
-                                    std::string msg = "";
-                                    msg.append(makeAGNPuint(responses.length()+8));
-                                    msg.append(makeAGNPuint(rq));
-                                    msg.append(responses);
-                                    p->conn->send(msg.c_str(), msg.length());
-                                    rq = 0;
-                                    responses = "";
-                                }
-                                p->messageSizeLeft -= 1;
-                                Command cmd;
-                                cmd.nestID = p->nestID;
-                                cmd.antID = UINT32_MAX;
-                                cmd.cmd = Command::ID::NEWANT;
-                                cmd.arg = (unsigned char)data[0];
-                                data.erase(0, 1);
-                                if (cmd.arg >= Ant::antTypec || Round::instance->map->nests[cmd.nestID]->commands.size() >= 0xff)
-                                {
-                                    responses.append("\x08\x01", 2);
-                                }
-                                else
-                                {
-                                    commands.push_back(cmd);
-                                    responses.append("\x08\0", 2);
-                                }
-                                break;}
-                            case (unsigned char)RequestID::CHANGELOG:{
-                                std::string msg = "";
-                                if (responses.length() > 0)
-                                {
-                                    msg.append(makeAGNPuint(responses.length()+8));
-                                    msg.append(makeAGNPuint(rq));
-                                    msg.append(responses);
-                                    p->conn->send(msg.c_str(), msg.length());
-                                    msg.clear();
-                                    responses = "";
-                                }
-                                rq = UINT_MAX;
-                                std::uint64_t antc = 0;
-                                for (Nest* n : Round::instance->map->nests) {if (n) {antc += n->ants.size();}}
-                                msg.reserve((std::uint64_t)Round::instance->map->nests.size() * 9UL + antc * 13UL);
-                                for (Nest* n : Round::instance->map->nests)
-                                {
-                                    if (n)
-                                    {
-                                        msg.append(makeAGNPdoublestr(n->foodCount));
-                                        msg.push_back((char)(unsigned char)std::min(n->ants.size(), (std::size_t)0xfe));
-                                        unsigned char anti = 0;
-                                        for (Ant * a : n->ants)
-                                        {
-                                            msg.append(makeAGNPuint(makeAGNPshortdouble(a->p.x)));
-                                            msg.append(makeAGNPuint(makeAGNPshortdouble(a->p.y)));
-                                            msg.push_back((char)a->type);
-                                            msg.append(makeAGNPuint(a->pid));
-                                            anti++;
-                                            if (anti == 0) {break;}
-                                        }
-                                    }
-                                    else
-                                    {
-                                        msg.append("\xff\xff\xff\xff\xff\xff\xff\xff\0", 9);
-                                    }
-                                }
-                                std::string events;
-                                unsigned int ec = 0;
-                                for (;!mapEventQueue.empty();)
-                                {
-                                    if (p->mapEventPos != --mapEventQueue.end())
-                                    {
-                                        p->mapEventPos++;
-                                        events.append(makeAGNPushort((*p->mapEventPos).x));
-                                        events.append(makeAGNPushort((*p->mapEventPos).y));
-                                        events.push_back((char)(*p->mapEventPos).tile);
-                                        ec++;
-                                    }
-                                    else
-                                    {
-                                        break;
-                                    }
-                                }
-                                events.insert(0, makeAGNPuint(ec));
-                                ec = 0;
-                                std::size_t insertPos = events.size();
-                                for (;!antEventQueue.empty();)
-                                {
-                                    if (p->antEventPos != --antEventQueue.end())
-                                    {
-                                        p->antEventPos++;
-                                        events.append(makeAGNPuint((*p->antEventPos).pid));
-                                        events.append(makeAGNPdoublestr((*p->antEventPos).health));
-                                        events.append(makeAGNPdoublestr((*p->antEventPos).foodCarry));
-                                        ec++;
-                                    }
-                                    else
-                                    {
-                                        break;
-                                    }
-                                }
-                                events.insert(insertPos, makeAGNPuint(ec));
-                                std::string head = "";
-                                head.append(makeAGNPuint(10+msg.length()+events.length()));
-                                head.append(makeAGNPuint(1));
-                                head.append("\x0a\x05", 2);
-                                p->conn->send(head.c_str(), head.length());
-                                p->conn->send(msg.c_str(), msg.length());
-                                p->conn->send(events.c_str(), events.length());
-                                break;}
-                            case (unsigned char)RequestID::ME:
-                                if (responses.length() > UINT32_MAX - 11)
-                                {
-                                    std::string msg = "";
-                                    msg.append(makeAGNPuint(responses.length()+8));
-                                    msg.append(makeAGNPuint(rq));
-                                    msg.append(responses);
-                                    p->conn->send(msg.c_str(), msg.length());
-                                    rq = 0;
-                                    responses = "";
-                                }
-                                responses.append("\x0b\x05");
-                                responses.push_back((char)p->nestID);
-                                break;
-                            default:{
-                                if (responses.length() > UINT32_MAX-10)
-                                {
-                                    std::string msg = "";
-                                    msg.append(makeAGNPuint(responses.length()+8));
-                                    msg.append(makeAGNPuint(rq));
-                                    msg.append(responses);
-                                    p->conn->send(msg.c_str(), msg.length());
-                                    rq = 0;
-                                    responses = "";
-                                }
-                                responses.push_back((char)id);
-                                responses.push_back('\x01');
-                                break;}
+                            msg.append("\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\0", 13);
                         }
-                        break;
+                    }
+                    std::string head = "";
+                    head.append(makeAGNPuint(10+msg.length()+(unsigned int)Round::instance->map->size.x*(unsigned int)Round::instance->map->size.y));
+                    head.append(makeAGNPuint(1));
+                    head.append("\x09\x05", 2);
+                    p->conn->send(head.c_str(), head.length());
+                    p->conn->send(msg.c_str(), msg.length());
+                    p->conn->send((char*)Round::instance->map->map, (unsigned int)Round::instance->map->size.x * (unsigned int)Round::instance->map->size.y);
+                    p->antEventPos = --antEventQueue.end();
+                    p->mapEventPos = --mapEventQueue.end();
                 }
-                if (endLoop) {break;}
+                else
+                {
+                    bool endLoop = false;
+                    switch (Round::instance->phase)
+                    {
+                        case Round::Phase::INIT:
+                        case Round::Phase::DONE:
+                        case Round::Phase::CLOSED:
+                        case Round::Phase::ERROR:
+                            endLoop = true;
+                            break;
+                        case Round::Phase::WAIT:
+                            switch (id)
+                            {
+                                case (unsigned char)RequestID::NAME:{
+                                    if (p->messageSizeLeft < 1)
+                                    {
+                                        unfinishedReq = id;
+            			                    break;
+                                    }
+                                    unsigned char nameSize = (unsigned char)data[0];
+                                    if (nameSize > 128) {nameSize = 128;}
+                                    p->messageSizeLeft -= 1;
+                                    data.erase(0, 1);
+                                    if (p->messageSizeLeft < nameSize)
+                                    {
+                                        unfinishedReq = id;
+                                        break;
+                                    }
+                                    p->name = "";
+                                    p->name.reserve(nameSize);
+                                    for (int i = 0; i < nameSize; i++)
+                                    {
+                                        if ((int)data[i] >= 32 && (int)data[i] <= 126)
+                                        {
+                                            switch(data[i])
+                                            {
+                                                case '<':
+                                                    p->name.append("&lt;");
+                                                    break;
+                                                case '>':
+                                                    p->name.append("&gt;");
+                                                    break;
+                                                case '&':
+                                                    p->name.append("&amp;");
+                                                    break;
+                                                case '\'':
+                                                    p->name.append("&apos;");
+                                                    break;
+                                                case '"':
+                                                    p->name.append("&quot;");
+                                                    break;
+                                                default:
+                                                    p->name.push_back(data[i]);
+                                                    break;
+                                            }
+                                        }
+                                    }
+                                    data.erase(0, nameSize);
+                                    p->messageSizeLeft -= nameSize;
+                                    if (responses.length() > UINT32_MAX-10)
+                                    {
+                                        std::string msg = "";
+                                        msg.append(makeAGNPuint(responses.length()+8));
+                                        msg.append(makeAGNPuint(rq));
+                                        msg.append(responses);
+                                        p->conn->send(msg.c_str(), msg.length());
+                                        rq = 0;
+                                        responses = "";
+                                    }
+                                    responses.append("\x03\0", 2);
+                                    break;}
+                                default:{
+                                    if (responses.length() > UINT32_MAX-10)
+                                    {
+                                        std::string msg = "";
+                                        msg.append(makeAGNPuint(responses.length()+8));
+                                        msg.append(makeAGNPuint(rq));
+                                        msg.append(responses);
+                                        p->conn->send(msg.c_str(), msg.length());
+                                        rq = 0;
+                                        responses = "";
+                                    }
+                                    responses.push_back((char)id);
+                                    responses.append("\x01", 1);
+                                    break;}
+                            }
+                            break;
+                        case Round::Phase::RUNNING:
+                            switch (id)
+                            {
+                                case (unsigned char)RequestID::TINTERACT:{
+                                    if (p->messageSizeLeft < 8)
+                                    {
+                                        unfinishedReq = id;
+                                        break;
+                                    }
+                                    if (responses.length() > UINT32_MAX-23)
+                                    {
+                                        std::string msg = "";
+                                        msg.append(makeAGNPuint(responses.length()+8));
+                                        msg.append(makeAGNPuint(rq));
+                                        msg.append(responses);
+                                        p->conn->send(msg.c_str(), msg.length());
+                                        rq = 0;
+                                        responses = "";
+                                    }
+                                    p->messageSizeLeft -= 8;
+                                    Command cmd;
+                                    cmd.nestID = p->nestID;
+                                    cmd.antID = getAGNPuint(data);
+                                    data.erase(0, 4);
+                                    cmd.cmd = Command::ID::TINTERACT;
+                                    cmd.arg = getAGNPuint(data);
+                                    data.erase(0, 4);
+                                    if (cmd.antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[cmd.antID] || Round::instance->map->antPermanents[cmd.antID]->health <= 0 || Round::instance->map->antPermanents[cmd.antID]->commands.size() >= 0xff || Round::instance->map->antPermanents[cmd.antID]->parent != Round::instance->map->nests[p->nestID])
+                                    {
+                                        responses.append("\x06\x01", 2);
+                                        responses.append("\0\x08\x06", 3);
+                                        responses.append(makeAGNPuint(cmd.antID));
+                                        responses.append(makeAGNPuint(cmd.arg));
+                                        rq++;
+                                    }
+                                    else
+                                    {
+                                        commands.push_back(cmd);
+                                        responses.append("\x06\0", 2);
+                                    }
+                                    break;}
+                                case (unsigned char)RequestID::WALK:{
+                                    if (p->messageSizeLeft < 12)
+                                    {
+                                        unfinishedReq = id;
+                                        break;
+                                    }
+                                    if (responses.length() > UINT32_MAX-27)
+                                    {
+                                        std::string msg = "";
+                                        msg.append(makeAGNPuint(responses.length()+8));
+                                        msg.append(makeAGNPuint(rq));
+                                        msg.append(responses);
+                                        p->conn->send(msg.c_str(), msg.length());
+                                        rq = 0;
+                                        responses = "";
+                                    }
+                                    p->messageSizeLeft -= 12;
+                                    Command cmd;
+                                    cmd.nestID = p->nestID;
+                                    cmd.antID = getAGNPuint(data);
+                                    data.erase(0, 4);
+                                    cmd.cmd = Command::ID::MOVE;
+                                    cmd.arg = getAGNPuint(data);
+                                    cmd.arg<<=32;
+                                    data.erase(0, 4);
+                                    cmd.arg += getAGNPuint(data);
+                                    data.erase(0, 4);
+                                    if (cmd.antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[cmd.antID] || Round::instance->map->antPermanents[cmd.antID]->health <= 0 || Round::instance->map->antPermanents[cmd.antID]->commands.size() >= 0xff || Round::instance->map->antPermanents[cmd.antID]->parent != Round::instance->map->nests[p->nestID])
+                                    {
+                                        responses.append("\x04\x01", 2);
+                                        responses.append("\0\x08\x04", 3);
+                                        responses.append(makeAGNPuint(cmd.antID));
+                                        responses.append(makeAGNPuint(cmd.arg>>32));
+                                        responses.append(makeAGNPuint(cmd.arg&0xffffffff));
+                                        rq++;
+                                    }
+                                    else
+                                    {
+                                        commands.push_back(cmd);
+                                        responses.append("\x04\0", 2);
+                                    }
+                                    break;}
+                                case (unsigned char)RequestID::AINTERACT:{
+                                    if (p->messageSizeLeft < 8)
+                                    {
+                                        unfinishedReq = id;
+                                        break;
+                                    }
+                                    if (responses.length() > UINT32_MAX-23)
+                                    {
+                                        std::string msg = "";
+                                        msg.append(makeAGNPuint(responses.length()+8));
+                                        msg.append(makeAGNPuint(rq));
+                                        msg.append(responses);
+                                        p->conn->send(msg.c_str(), msg.length());
+                                        rq = 0;
+                                        responses = "";
+                                    }
+                                    p->messageSizeLeft -= 8;
+                                    Command cmd;
+                                    cmd.nestID = p->nestID;
+                                    cmd.antID = getAGNPuint(data);
+                                    data.erase(0, 4);
+                                    cmd.cmd = Command::ID::AINTERACT;
+                                    cmd.arg = getAGNPuint(data);
+                                    data.erase(0, 4);
+                                    if (cmd.antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[cmd.antID] || Round::instance->map->antPermanents[cmd.antID]->health <= 0 || Round::instance->map->antPermanents[cmd.antID]->commands.size() >= 0xff || Round::instance->map->antPermanents[cmd.antID]->parent != Round::instance->map->nests[p->nestID])
+                                    {
+                                        responses.append("\x07\x01", 2);
+                                        responses.append("\0\x08\x07", 3);
+                                        responses.append(makeAGNPuint(cmd.antID));
+                                        responses.append(makeAGNPuint(cmd.arg));
+                                        rq++;
+                                    }
+                                    else
+                                    {
+                                        commands.push_back(cmd);
+                                        responses.append("\x07\0", 2);
+                                    }
+                                    break;}
+                                case (unsigned char)RequestID::CANCEL:{
+                                    if (p->messageSizeLeft < 4)
+                                    {
+                                        unfinishedReq = id;
+                                        break;
+                                    }
+                                    if (responses.length() > UINT32_MAX-10)
+                                    {
+                                        std::string msg = "";
+                                        msg.append(makeAGNPuint(responses.length()+8));
+                                        msg.append(makeAGNPuint(rq));
+                                        msg.append(responses);
+                                        p->conn->send(msg.c_str(), msg.length());
+                                        rq = 0;
+                                        responses = "";
+                                    }
+                                    p->messageSizeLeft -= 4;
+                                    unsigned int antID = getAGNPuint(data);
+                                    data.erase(0, 4);
+                                    if (antID > Round::instance->map->antPermanents.size() || !Round::instance->map->antPermanents[antID] || Round::instance->map->antPermanents[antID]->health <= 0 || Round::instance->map->antPermanents[antID]->parent != Round::instance->map->nests[p->nestID])
+                                    {
+                                        responses.append("\x0c\x01", 2);
+                                    }
+                                    else
+                                    {
+                                        responses.append("\x0c\0", 2);
+                                        for (Ant::AntCommand& acmd : Round::instance->map->antPermanents[antID]->commands)
+                                        {
+                                            acmd.state = Ant::AntCommand::State::FAIL;
+                                        }
+                                    }
+                                    break;}
+                                case (unsigned char)RequestID::NEWANT:{
+                                    if (p->messageSizeLeft < 1)
+                                    {
+                                        unfinishedReq = id;
+                                        break;
+                                    }
+                                    if (responses.length() > UINT32_MAX-14)
+                                    {
+                                        std::string msg = "";
+                                        msg.append(makeAGNPuint(responses.length()+8));
+                                        msg.append(makeAGNPuint(rq));
+                                        msg.append(responses);
+                                        p->conn->send(msg.c_str(), msg.length());
+                                        rq = 0;
+                                        responses = "";
+                                    }
+                                    p->messageSizeLeft -= 1;
+                                    Command cmd;
+                                    cmd.nestID = p->nestID;
+                                    cmd.antID = UINT32_MAX;
+                                    cmd.cmd = Command::ID::NEWANT;
+                                    cmd.arg = (unsigned char)data[0];
+                                    data.erase(0, 1);
+                                    if (cmd.arg >= Ant::antTypec || Round::instance->map->nests[cmd.nestID]->commands.size() >= 0xff)
+                                    {
+                                        responses.append("\x08\x01", 2);
+                                        responses.append("\0\x08\x08", 3);
+                                        responses.push_back((char)cmd.arg);
+                                        rq++;
+                                    }
+                                    else
+                                    {
+                                        commands.push_back(cmd);
+                                        responses.append("\x08\0", 2);
+                                    }
+                                    break;}
+                                case (unsigned char)RequestID::CHANGELOG:{
+                                    std::string msg = "";
+                                    if (responses.length() > 0)
+                                    {
+                                        msg.append(makeAGNPuint(responses.length()+8));
+                                        msg.append(makeAGNPuint(rq));
+                                        msg.append(responses);
+                                        p->conn->send(msg.c_str(), msg.length());
+                                        msg.clear();
+                                        responses = "";
+                                    }
+                                    rq = UINT_MAX;
+                                    std::uint64_t antc = 0;
+                                    for (Nest* n : Round::instance->map->nests) {if (n) {antc += n->ants.size();}}
+                                    msg.reserve((std::uint64_t)Round::instance->map->nests.size() * 9UL + antc * 13UL);
+                                    for (Nest* n : Round::instance->map->nests)
+                                    {
+                                        if (n)
+                                        {
+                                            msg.append(makeAGNPdoublestr(n->foodCount));
+                                            msg.push_back((char)(unsigned char)std::min(n->ants.size(), (std::size_t)0xfe));
+                                            unsigned char anti = 0;
+                                            for (Ant * a : n->ants)
+                                            {
+                                                msg.append(makeAGNPuint(makeAGNPshortdouble(a->p.x)));
+                                                msg.append(makeAGNPuint(makeAGNPshortdouble(a->p.y)));
+                                                msg.push_back((char)a->type);
+                                                msg.append(makeAGNPuint(a->pid));
+                                                anti++;
+                                                if (anti == 0) {break;}
+                                            }
+                                        }
+                                        else
+                                        {
+                                            msg.append("\xff\xff\xff\xff\xff\xff\xff\xff\0", 9);
+                                        }
+                                    }
+                                    std::string events;
+                                    unsigned int ec = 0;
+                                    for (;!mapEventQueue.empty();)
+                                    {
+                                        if (p->mapEventPos != --mapEventQueue.end())
+                                        {
+                                            p->mapEventPos++;
+                                            events.append(makeAGNPushort((*p->mapEventPos).x));
+                                            events.append(makeAGNPushort((*p->mapEventPos).y));
+                                            events.push_back((char)(*p->mapEventPos).tile);
+                                            ec++;
+                                        }
+                                        else
+                                        {
+                                            break;
+                                        }
+                                    }
+                                    events.insert(0, makeAGNPuint(ec));
+                                    ec = 0;
+                                    std::size_t insertPos = events.size();
+                                    for (;!antEventQueue.empty();)
+                                    {
+                                        if (p->antEventPos != --antEventQueue.end())
+                                        {
+                                            p->antEventPos++;
+                                            events.append(makeAGNPuint((*p->antEventPos).pid));
+                                            events.append(makeAGNPdoublestr((*p->antEventPos).health));
+                                            events.append(makeAGNPdoublestr((*p->antEventPos).foodCarry));
+                                            ec++;
+                                        }
+                                        else
+                                        {
+                                            break;
+                                        }
+                                    }
+                                    events.insert(insertPos, makeAGNPuint(ec));
+                                    std::string head = "";
+                                    head.append(makeAGNPuint(10+msg.length()+events.length()));
+                                    head.append(makeAGNPuint(1));
+                                    head.append("\x0a\x05", 2);
+                                    p->conn->send(head.c_str(), head.length());
+                                    p->conn->send(msg.c_str(), msg.length());
+                                    p->conn->send(events.c_str(), events.length());
+                                    break;}
+                                case (unsigned char)RequestID::ME:
+                                    if (responses.length() > UINT32_MAX - 11)
+                                    {
+                                        std::string msg = "";
+                                        msg.append(makeAGNPuint(responses.length()+8));
+                                        msg.append(makeAGNPuint(rq));
+                                        msg.append(responses);
+                                        p->conn->send(msg.c_str(), msg.length());
+                                        rq = 0;
+                                        responses = "";
+                                    }
+                                    responses.append("\x0b\x05");
+                                    responses.push_back((char)p->nestID);
+                                    break;
+                                default:{
+                                    if (responses.length() > UINT32_MAX-10)
+                                    {
+                                        std::string msg = "";
+                                        msg.append(makeAGNPuint(responses.length()+8));
+                                        msg.append(makeAGNPuint(rq));
+                                        msg.append(responses);
+                                        p->conn->send(msg.c_str(), msg.length());
+                                        rq = 0;
+                                        responses = "";
+                                    }
+                                    responses.push_back((char)id);
+                                    responses.push_back('\x01');
+                                    break;}
+                            }
+                            break;
+                    }
+                    if (endLoop) {break;}
+                }
+                rq++;
             }
-            rq++;
-        }
-        if (data.length() > 0 && p->messageSizeLeft > 0)
-        {
-            data.erase(0, p->messageSizeLeft);
-        }
-        p->messageSizeLeft = 0;
-        if (rq > 0 && responses.length() > 0)
-        {
-            std::string msg = "";
-            msg.append(makeAGNPuint(responses.length()+8));
-            msg.append(makeAGNPuint(rq));
-            msg.append(responses);
-            p->conn->send(msg.c_str(), msg.length());
-        }
-        if (unfinishedReq != 0)
-        {
-            std::string msg = "";
-            msg.append("\0\0\0\x0a\0\0\0\x01", 8); // Msg size 10, 1 response
-            msg.push_back((char)unfinishedReq);
-            msg.push_back('\x01');
-            p->conn->send(msg.data(), msg.length());
-        }
-        if (p->bye)
-        {
-            p->toClose = true;
+            if (data.length() > 0 && p->messageSizeLeft > 0)
+            {
+                data.erase(0, p->messageSizeLeft);
+            }
+            p->messageSizeLeft = 0;
+            if (rq > 0 && responses.length() > 0)
+            {
+                std::string msg = "";
+                msg.append(makeAGNPuint(responses.length()+8));
+                msg.append(makeAGNPuint(rq));
+                msg.append(responses);
+                p->conn->send(msg.c_str(), msg.length());
+            }
+            if (unfinishedReq != 0)
+            {
+                std::string msg = "";
+                msg.append("\0\0\0\x0a\0\0\0\x01", 8); // Msg size 10, 1 response
+                msg.push_back((char)unfinishedReq);
+                msg.push_back('\x01');
+                p->conn->send(msg.data(), msg.length());
+            }
+            if (p->bye)
+            {
+                p->toClose = true;
+            }
         }
     }
     p->unusedData = data;

@@ -20,13 +20,13 @@ def onStart():
 
 
 def onWait(ma):
-    if ma.type == attackerAnt:
-        ma.followAttack(ma.nearestEnemy())
-    else:
+    if ma.type == defaultAnt:
         if not ma.isFull:
             ma.goTake(ma.nearestFreeFood())
         else:
             ma.goDeliver()
+#    else:
+#        ma.followAttack(ma.nearestEnemy())
 
 
 def onDeliver(ma):

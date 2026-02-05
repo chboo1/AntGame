@@ -135,6 +135,7 @@ class RoundSettings
     double antCost;
     double attackRange;
     double attackDamage;
+    double attackRate;
     double antHealth;
     double pickupRange;
     double capacityMod;
