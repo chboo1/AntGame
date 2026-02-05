@@ -13,6 +13,8 @@ bin/AntGameServer
 bin/AntGameServer.exe
 bin/mapMaker
 bin/mapMaker.exe
+bin/mapMakerSmall
+bin/mapMakerSmall.exe
 dumpLog
 bin/dummyClient
 bin/dummyClient.exe
