@@ -1940,20 +1940,12 @@ static PyObject* Ant_gettype(PyObject* op, void*closure)
 {
     AntObject* self = (AntObject*)op;
     AntTypeObject*typeobj = (AntTypeObject*)AntTypeType.tp_alloc(&AntTypeType, 0);
-    if (!self->root)
+    if (!self->root || self->antID == 0xffffffff)
     {
         if (self->echo.type != 0xff)
         {
             typeobj->type = self->echo.type;
         }
-    }
-    else if (self->antID == 0xffffffff)
-    {
-        if (PyErr_WarnEx(PyExc_RuntimeWarning, "This ant is dead! Accessing its type may cause issues.", 2) < 0)
-        {
-            return nullptr;
-        }
-        typeobj->type = 0;
     }
     else
     {
@@ -2000,7 +1992,7 @@ static PyObject* Ant_gethealth(PyObject* op, void*closure)
 static PyObject* Ant_getfood(PyObject* op, void*closure)
 {
     AntObject* self = (AntObject*)op;
-    if (!self->root)
+    if (!self->root || self->antID == 0xffffffff)
     {
         if (self->echo.type != 0xff)
         {
@@ -2011,14 +2003,6 @@ static PyObject* Ant_getfood(PyObject* op, void*closure)
             return nullptr;
         }
         return PyFloat_FromDouble(0);
-    }
-    if (self->antID == 0xffffffff)
-    {
-        return PyFloat_FromDouble(0);
-        if (PyErr_WarnEx(PyExc_RuntimeWarning, "This ant is dead! Accessing its food amount may cause issues.", 2) < 0)
-        {
-            return nullptr;
-        }
     }
     AntGameClientObject* root = (AntGameClientObject*)self->root;
     if (!root->map || root->map->antPermanents.size() <= self->antID || !root->map->antPermanents[self->antID])
@@ -2038,7 +2022,7 @@ static PyObject* Ant_getpos(PyObject* op, void* closure)
     Py_XINCREF(posobj);
     if (posobj)
     {
-        if (!self->root)
+        if (!self->root || self->antID == 0xffffffff)
         {
             if (self->echo.type != 0xff)
             {
@@ -2053,16 +2037,6 @@ static PyObject* Ant_getpos(PyObject* op, void* closure)
                     Py_DECREF(posobj);
                     return nullptr;
                 }
-            }
-        }
-        if (self->antID == 0xffffffff)
-        {
-            posobj->p.x = 0;
-            posobj->p.y = 0;
-            if (PyErr_WarnEx(PyExc_RuntimeWarning, "This ant is dead! Accessing its position may cause issues.", 2) < 0)
-            {
-                Py_XDECREF(posobj);
-                return nullptr;
             }
         }
         else
@@ -2157,7 +2131,165 @@ static PyObject* Ant_getisFull(PyObject* op, void*closure)
 }
 
 
+static PyObject* Ant_getparent(PyObject* op, void*closure)
+{
+    AntObject*self = (AntObject*)op;
+    NestObject*nestobj = (NestObject*)NestType.tp_alloc(&NestType, 0);
+    if (!nestobj)
+    {
+        return nullptr;
+    }
+    if (!self->root || !self->root->map)
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "This ant is bugged! Getting its parent is impossible. (Report this error!)", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    else if (self->antID == 0xffffffff)
+    {
+        nestobj->root = self->root;
+        if (self->echo.type != 0xff)
+        {
+            nestobj->nestID = 0xff;
+            for (unsigned char i = 0; i < self->root->map->nests.size(); i++)
+            {
+                if (self->root->map->nests[i] == self->echo.parent)
+                {
+                    nestobj->nestID = i;
+                    break;
+                }
+            }
+            if (nestobj->nestID != 0xff)
+            {
+                Py_INCREF(nestobj);
+                return (PyObject*)nestobj;
+            }
+        }
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "This ant is bugged! Getting its parent is impossible. (Report this error!)", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    if (self->root->map->antPermanents.size() <= self->antID || !self->root->map->antPermanents[self->antID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot get the parent of an ant that died!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    for (unsigned char i = 0; i < self->root->map->nests.size(); i++)
+    {
+        if (self->root->map->nests[i] == self->root->map->antPermanents[self->antID]->parent)
+        {
+            nestobj->nestID = i;
+            break;
+        }
+    }
+    if (nestobj->nestID != 0xff)
+    {
+        Py_INCREF(nestobj);
+        return (PyObject*)nestobj;
+    }
+    if (PyErr_WarnEx(PyExc_RuntimeWarning, "This ant is bugged! Getting its parent is impossible. (Report this error!)", 2) < 0)
+    {
+        return nullptr;
+    }
+    Py_RETURN_NONE;
+}
+
+
 static PyObject* Ant_gettarget(PyObject* op, void*closure);
+
+
+static PyObject* Ant_getisAlive(PyObject*op, void*closure)
+{
+    AntObject*self = (AntObject*)op;
+    if (!self->root || !self->root->map)
+    {
+        Py_RETURN_FALSE;
+    }
+    if (self->antID == UINT_MAX)
+    {
+        if (self->echo.type == 0xff)
+        {
+            Py_RETURN_FALSE;
+        }
+        else
+        {
+            Py_RETURN_TRUE;
+        }
+    }
+    if (self->root->map->antPermanents.size() <= self->antID || !self->root->map->antPermanents[self->antID])
+    {
+        Py_RETURN_FALSE;
+    }
+    else
+    {
+        Py_RETURN_TRUE;
+    }
+}
+
+
+static PyObject* Ant_getisSafe(PyObject*op, void*closure)
+{
+    AntObject*self = (AntObject*)op;
+    if (!self->root || !self->root->map)
+    {
+        Py_RETURN_FALSE;
+    }
+    if (self->antID == UINT_MAX)
+    {
+        if (self->echo.type == 0xff)
+        {
+            Py_RETURN_FALSE;
+        }
+        else
+        {
+            if (self->root->map->antPermanents.size() <= self->echo.pid || !self->root->map->antPermanents[self->echo.pid])
+            {
+                Py_RETURN_FALSE;
+            }
+            else
+            {
+                Py_RETURN_TRUE;
+            }
+        }
+    }
+    if (self->root->map->antPermanents.size() <= self->antID || !self->root->map->antPermanents[self->antID])
+    {
+        Py_RETURN_FALSE;
+    }
+    else
+    {
+        Py_RETURN_TRUE;
+    }
+}
+
+
+static PyObject* Ant_getisFrozen(PyObject*op, void*closure)
+{
+    AntObject*self = (AntObject*)op;
+    if (!self->root || !self->root->map)
+    {
+        Py_RETURN_FALSE;
+    }
+    if (self->antID == UINT_MAX)
+    {
+        if (self->echo.type == 0xff)
+        {
+            Py_RETURN_FALSE;
+        }
+        else
+        {
+            Py_RETURN_TRUE;
+        }
+    }
+    Py_RETURN_FALSE;
+}
 
 
 static PyGetSetDef Ant_getsetters[] = {
@@ -2170,6 +2302,10 @@ static PyGetSetDef Ant_getsetters[] = {
     {"isFull", Ant_getisFull, nullptr, "whether ant has max food", nullptr},
     {"index", Ant_getindex, nullptr, "ant's index in ants list", nullptr},
     {"target", Ant_gettarget, nullptr, "ant's target", nullptr},
+    {"parent", Ant_getparent, nullptr, "ant's parent nest", nullptr},
+    {"isAlive", Ant_getisAlive, nullptr, "whether ant is alive", nullptr},
+    {"isSafe", Ant_getisSafe, nullptr, "whether ant is safe to unfreeze or access", nullptr},
+    {"isFrozen", Ant_getisFrozen, nullptr, "whether ant is frozen", nullptr},
     {nullptr}
 };
 
@@ -2952,6 +3088,64 @@ static PyObject* Ant_nearestFreeFood(PyObject* op, PyObject* args)
 }
 
 
+static PyObject* Ant_freeze(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    if (!self->root || !self->root->map || self->antID == UINT_MAX || self->root->map->antPermanents.size() <= self->antID || !self->root->map->antPermanents[self->antID])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Tried to freeze ant that is either dead or already frozen! The freeze function will do nothing. This may cause issues.", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    self->echo = *self->root->map->antPermanents[self->antID];
+    self->antID = UINT_MAX;
+    Py_RETURN_NONE;
+}
+
+
+static PyObject* Ant_unfreeze(PyObject* op, PyObject* args)
+{
+    AntObject* self = (AntObject*)op;
+    if (!self->root || !self->root->map)
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Tried to unfreeze bugged ant!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    if (self->antID != UINT_MAX)
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Tried to unfreeze an already unfrozen ant! The unfreeze function will do nothing.", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    if (self->echo.type == 0xff)
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Tried to unfreeze a dead ant! The unfreeze function will do nothing. This may cause issues", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    if (self->echo.pid >= self->root->map->antPermanents.size() || !self->root->map->antPermanents[self->echo.pid])
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Tried to unfreeze a dead ant! The unfreeze function will do nothing. This may cause issues", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    self->antID = self->echo.pid;
+    self->echo.type = 0xff;
+    Py_RETURN_NONE;
+}
+
+
 static PyObject* Ant_nearestAnt(PyObject* op, PyObject* args);
 static PyObject* Ant_nearestFriend(PyObject* op, PyObject* args);
 static PyObject* Ant_nearestEnemy(PyObject* op, PyObject* args);
@@ -2973,6 +3167,8 @@ static PyMethodDef Ant_methods[] = {
     {"nearestFriend", Ant_nearestFriend, METH_NOARGS, "Find the nearest friend."},
     {"nearestAnt", Ant_nearestAnt, METH_NOARGS, "Find the nearest ant."},
     {"stop", Ant_stop, METH_NOARGS, "Stop all commands."},
+    {"freeze", Ant_freeze, METH_NOARGS, "Take a frozen snapshot of this ant."},
+    {"unfreeze", Ant_unfreeze, METH_NOARGS, "Try to recover an ant from a snapshot."},
     {nullptr, nullptr, 0, nullptr}
 };
 
@@ -3583,7 +3779,7 @@ static bool AntGameClient_callAntCallback(AntGameClientObject* self, PyObject*fu
     }
     else
     {
-        item->root = nullptr;
+        item->root = self;
         item->antID = 0xffffffff;
         item->echo = *a;
     }
