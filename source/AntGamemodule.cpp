@@ -15,6 +15,10 @@
 #include "headers/network.hpp"
 #include "headers/map.hpp"
 
+#ifdef far // I have no fucking idea what moron defined a macro this simple, but I have to undef it on windows
+#undef far
+#endif
+
 
 struct PosObject
 {
@@ -47,8 +51,8 @@ static PyTypeObject PosType = {
     .tp_flags = Py_TPFLAGS_DEFAULT,
     //TODO
     .tp_doc = PyDoc_STR("Placeholder doc string"),
-    .tp_members = Pos_members,
     .tp_methods = Pos_methods,
+    .tp_members = Pos_members,
     .tp_new = PyType_GenericNew,
 };
 
@@ -1646,8 +1650,8 @@ static PyTypeObject AntGameClientType = {
     .tp_flags = Py_TPFLAGS_DEFAULT,
     //TODO
     .tp_doc = PyDoc_STR("Placeholder doc string"),
-    .tp_members = AntGameClient_members,
     .tp_methods = AntGameClient_methods,
+    .tp_members = AntGameClient_members,
     .tp_getset = AntGameClient_getsetters,
     .tp_new = AntGameClient_new,
 };
@@ -1920,8 +1924,8 @@ static PyTypeObject AntTypeType = {
     .tp_flags = Py_TPFLAGS_DEFAULT,
     // TODO
     .tp_doc = PyDoc_STR("Placerholder doc string"),
-    .tp_getset = AntType_getsetters,
     .tp_richcompare = AntType_richcompare,
+    .tp_getset = AntType_getsetters,
     .tp_new = AntType_new,
 };
 
@@ -3222,10 +3226,10 @@ static PyTypeObject AntType = {
     .tp_flags = Py_TPFLAGS_DEFAULT,
     //TODO
     .tp_doc = PyDoc_STR("Placeholder doc string"),
+    .tp_richcompare = Ant_richcompare,
     .tp_methods = Ant_methods,
     .tp_getset = Ant_getsetters,
     .tp_new = PyType_GenericNew,
-    .tp_richcompare = Ant_richcompare,
 };
 
 

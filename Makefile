@@ -41,7 +41,7 @@ module: libs AntGameModule/AntGame.pyd
 
 AntGameModule/AntGame.pyd: source/AntGamemodule.cpp
 	g++ -fpic -c source\\AntGameModule.cpp -IAntGameModule\\include -o AntGameModule\\AntGamemodule.o
-	g++ -shared AntGameModule\\AntGamemodule.o -lws2_32 -o AntGameModule\\AntGame.pyd -LAntGameModule\\libs -lpython314
+	g++ -shared AntGameModule\\AntGamemodule.o out\\*.o -lws2_32 -o AntGameModule\\AntGame.pyd -LAntGameModule\\libs -lpython314
 else
 module: libs AntGameModule/AntGame.so
 

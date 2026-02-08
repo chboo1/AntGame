@@ -1023,7 +1023,6 @@ bool Connection::send(const char* message, size_t len)
             case WSAENETDOWN:
                 errorState = NET;
                 break;
-            case WSAEPIPE:
             case WSAENETRESET:
             case WSAEHOSTUNREACH:
             case WSAECONNABORTED:
