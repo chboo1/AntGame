@@ -46,17 +46,20 @@ void RoundSettings::loadConfig(std::string config)
     mapFile = "defaultMap";
     port = ANTNET_DEFAULT_PORT;
     gameStartDelay = 3.0;
+
     timeScale = 1.0;
+
     startingFood = 60;
-    movementSpeed = 5.0;
     hungerRate = 1.0;
     foodYield = 1.0;
     foodTheftYield = 3.0;
-    antCost = 5.0;
-    attackRange = 10.0;
+
+    movementSpeed = 1.0;
+    antCost = 1.0;
+    attackRange = 1.0;
     attackDamage = 1.0;
-    antHealth = 5.0;
-    pickupRange = 10.0;
+    antHealth = 1.0;
+    pickupRange = 1.0;
     capacityMod = 1.0;
     if (configF.is_open())
     {
@@ -78,24 +81,30 @@ void RoundSettings::_loadConfig(std::string config)
     mapFile = "defaultMap";
     port = ANTNET_DEFAULT_PORT;
     gameStartDelay = 3.0;
+
     timeScale = 1.0;
+
     startingFood = 60;
-    movementSpeed = 5.0;
     hungerRate = 1.0;
     foodYield = 1.0;
     foodTheftYield = 3.0;
-    antCost = 5.0;
-    attackRange = 10.0;
+
+    movementSpeed = 1.0;
+    antCost = 1.0;
+    attackRange = 1.0;
     attackDamage = 1.0;
-    antHealth = 5.0;
-    pickupRange = 10.0;
+    antHealth = 1.0;
+    pickupRange = 1.0;
     capacityMod = 1.0;
     std::string line;
     while (getline(configF, line))
     {
-        std::string identifier = line.substr(0, line.find(':'));
-        std::string data = line.find(':') >= line.length() - 1 ? "": line.substr(line.find(':')+1);
-        configLine(identifier, data);
+        if (!line.empty())
+        {
+            std::string identifier = line.substr(0, line.find(':'));
+            std::string data = line.find(':') >= line.length() - 1 ? "": line.substr(line.find(':')+1);
+            configLine(identifier, data);
+        }
     }
 }
 
@@ -142,13 +151,13 @@ void RoundSettings::configLine(std::string identifier, std::string data)
 	std::cerr << "The `startingfood' argument of the configuration file is not a valid integer! Remember not to include any spaces." << std::endl;
 	}
     }
-    else if (identifier == "movementspeed")
+    else if (identifier == "movementspeedmod")
     {
 	try{
 	movementSpeed = std::stod(data);
 	}catch(...){
-        movementSpeed = 5.0;
-	std::cerr << "The `movementspeed' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
+        movementSpeed = 1.0;
+	std::cerr << "The `movementspeedmod' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
 	}
     }
     else if (identifier == "hungerrate")
@@ -178,58 +187,58 @@ void RoundSettings::configLine(std::string identifier, std::string data)
 	std::cerr << "The `foodtheftyield' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
 	}
     }
-    else if (identifier == "antcost")
+    else if (identifier == "antcostmod")
     {
 	try{
 	antCost = std::stod(data);
 	}catch(...){
-        antCost = 5.0;
-	std::cerr << "The `antcost' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
+        antCost = 1.0;
+	std::cerr << "The `antcostmod' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
 	}
     }
-    else if (identifier == "attackrange")
+    else if (identifier == "attackrangemod")
     {
 	try{
 	attackRange = std::stod(data);
 	}catch(...){
-        attackRange = 10.0;
-	std::cerr << "The `attackrange' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
+        attackRange = 1.0;
+	std::cerr << "The `attackrangemod' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
 	}
     }
-    else if (identifier == "attackrate")
+    else if (identifier == "attackratemod")
     {
 	try{
 	attackRate = std::stod(data);
 	}catch(...){
-        attackRate = 0.1;
-	std::cerr << "The `attackrate' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
+        attackRate = 1.0;
+	std::cerr << "The `attackratemod' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
 	}
     }
-    else if (identifier == "attackdmg")
+    else if (identifier == "attackdmgmod")
     {
 	try{
 	attackDamage = std::stod(data);
 	}catch(...){
         attackDamage = 1.0;
-	std::cerr << "The `attackdmg' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
+	std::cerr << "The `attackdmgmod' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
 	}
     }
-    else if (identifier == "anthealth")
+    else if (identifier == "anthealthmod")
     {
 	try{
 	antHealth = std::stod(data);
 	}catch(...){
-        antHealth = 5.0;
-	std::cerr << "The `anthealth' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
+        antHealth = 1.0;
+	std::cerr << "The `anthealthmod' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
 	}
     }
-    else if (identifier == "pickuprange")
+    else if (identifier == "pickuprangemod")
     {
 	try{
 	pickupRange = std::stod(data);
 	}catch(...){
-        pickupRange = 10.0;
-	std::cerr << "The `pickuprange' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
+        pickupRange = 1.0;
+	std::cerr << "The `pickuprangemod' argument of the configuration file is not a valid number! Remember not to include any spaces." << std::endl;
 	}
     }
     else if (identifier == "capacitymod")

@@ -760,13 +760,13 @@ void Nest::step(double delta)
         switch (cmd.cmd)
         {
             case NestCommand::ID::NEWANT:
-                if (foodCount < Ant::antTypes[cmd.arg].costMod * RoundSettings::instance->antCost || ants.size() >= 254)
+                if (foodCount < Ant::antTypes[cmd.arg].cost * RoundSettings::instance->antCost || ants.size() >= 254)
                 {
                     cmd.state = NestCommand::State::FAIL;
                     break;
                 }
                 stats.antsMade++;
-                foodCount -= Ant::antTypes[cmd.arg].costMod * RoundSettings::instance->antCost;
+                foodCount -= Ant::antTypes[cmd.arg].cost * RoundSettings::instance->antCost;
                 Ant* a = createAnt(cmd.arg);
                 cmd.state = NestCommand::State::SUCCESS;
                 ConnectionManager::AntEvent ae;
@@ -881,7 +881,7 @@ void Ant::init(Nest* nparent, DPos npos, unsigned char ntype) // Takes a parent 
     parent = nparent;
     p = npos;
     type = ntype;
-    health = Ant::antTypes[type].healthMod * RoundSettings::instance->antHealth;
+    health = Ant::antTypes[type].health * RoundSettings::instance->antHealth;
     foodCarry = 0;
     pid = parent->parent->antPermanents.size();
     parent->parent->antPermanents.push_back(this);
@@ -891,7 +891,7 @@ void Ant::_init(Nest* nparent, DPos npos, unsigned char ntype)
     parent = nparent;
     p = npos;
     type = ntype;
-    health = Ant::antTypes[type].healthMod * RoundSettings::instance->antHealth;
+    health = Ant::antTypes[type].health * RoundSettings::instance->antHealth;
     foodCarry = 0;
 }
 void Ant::giveCommand(AntCommand com)
@@ -918,10 +918,10 @@ void Ant::step(double delta)
                     cmd.state = AntCommand::State::SUCCESS;
                     break;
                 }
-                else if (destLen > delta * Ant::antTypes[type].speedMod * RoundSettings::instance->movementSpeed)
+                else if (destLen > delta * Ant::antTypes[type].speed * RoundSettings::instance->movementSpeed)
                 {
-                    dest.x = dest.x / destLen * delta * Ant::antTypes[type].speedMod * RoundSettings::instance->movementSpeed;
-                    dest.y = dest.y / destLen * delta * Ant::antTypes[type].speedMod * RoundSettings::instance->movementSpeed;
+                    dest.x = dest.x / destLen * delta * Ant::antTypes[type].speed * RoundSettings::instance->movementSpeed;
+                    dest.y = dest.y / destLen * delta * Ant::antTypes[type].speed * RoundSettings::instance->movementSpeed;
                 }
                 Pos npos = p + dest;
                 Pos v = p;
@@ -983,7 +983,7 @@ void Ant::step(double delta)
                 {
                     cmd.state = AntCommand::State::FAIL;
                 }
-                else if (((DPos)target - p).magnitude() > RoundSettings::instance->pickupRange * Ant::antTypes[type].rangeMod)
+                else if (((DPos)target - p).magnitude() > RoundSettings::instance->pickupRange * Ant::antTypes[type].range)
                 {
                     if (!moved) // This basically means if you're moving somewhere it'll let you retry next frame
                     {
@@ -1063,11 +1063,11 @@ void Ant::step(double delta)
                     cmd.state = AntCommand::State::FAIL;
                     break;
                 }
-                if (std::chrono::duration<double>(std::chrono::high_resolution_clock::now()-lastAINTER).count() * RoundSettings::instance->timeScale < RoundSettings::instance->attackRate * Ant::antTypes[type].rateMod)
+                if (std::chrono::duration<double>(std::chrono::high_resolution_clock::now()-lastAINTER).count() * RoundSettings::instance->timeScale < RoundSettings::instance->attackRate * Ant::antTypes[type].rate)
                 {
                     break;
                 }
-                if ((parent->parent->antPermanents[cmd.arg]->p - p).magnitude() > RoundSettings::instance->attackRange * Ant::antTypes[type].rangeMod)
+                if ((parent->parent->antPermanents[cmd.arg]->p - p).magnitude() > RoundSettings::instance->attackRange * Ant::antTypes[type].range)
                 {
                     if (!moved)
                     {
@@ -1077,7 +1077,7 @@ void Ant::step(double delta)
                 }
                 cmd.state = AntCommand::State::SUCCESS;
                 Ant* ea = parent->parent->antPermanents[cmd.arg];
-                ea->health -= Ant::antTypes[type].damageMod * RoundSettings::instance->attackDamage;
+                ea->health -= Ant::antTypes[type].damage * RoundSettings::instance->attackDamage;
                 ConnectionManager::AntEvent ae;
                 ae.pid = ea->pid;
                 ae.health = ea->health;

@@ -51,6 +51,8 @@ If you only need the server runtime, run
 make server
 ```
 
+Note: if the module fails to import on Windows, with the error "ImportError: DLL load failed while importing AntGame...", you might need to move the standard C++ libraries your version of g++ uses closer. That is, into either the same directory as the .pyd file or into your PATH. You can also call os.add_dll_directory with wherever those DLLs are BEFORE your 'import AntGame' statement.
+
 ## Roadmap
 
 Things I need to do! It's quite complicated in reality, but in short, this is the game plan (mostly in chronological order):

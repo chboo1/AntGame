@@ -37,13 +37,13 @@ endif
 
 
 ifeq ($(OS), Windows_NT)
-module: libs AntGameModule/AntGame.pyd
+module: out/*.o AntGameModule/AntGame.pyd
 
 AntGameModule/AntGame.pyd: source/AntGamemodule.cpp
 	g++ -std=c++17 -fpic -c source\\AntGameModule.cpp -IAntGameModule\\include -o AntGameModule\\AntGamemodule.o
 	g++ -std=c++17 -fpic -shared AntGameModule\\AntGamemodule.o out\\*.o -lws2_32 -o AntGameModule\\AntGame.pyd -LAntGameModule\\libs -lpython314
 else
-module: libs AntGameModule/AntGame.so
+module: out/*.o AntGameModule/AntGame.so
 
 AntGameModule/AntGame.so: source/AntGamemodule.cpp
 	g++ -std=c++17 -fpic -c source/AntGameModule.cpp -IAntGameModule/include -o AntGameModule/AntGamemodule.o

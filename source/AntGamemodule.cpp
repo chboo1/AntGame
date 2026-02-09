@@ -1823,7 +1823,7 @@ static PyObject* AntType_getmaxhealth(PyObject*op, void*closure)
         PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
         return nullptr;
     }
-    return PyFloat_FromDouble(Ant::antTypes[self->type].healthMod * RoundSettings::instance->antHealth);
+    return PyFloat_FromDouble(Ant::antTypes[self->type].health * RoundSettings::instance->antHealth);
 }
 
 
@@ -1835,7 +1835,7 @@ static PyObject* AntType_getdamage(PyObject*op, void*closure)
         PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
         return nullptr;
     }
-    return PyFloat_FromDouble(Ant::antTypes[self->type].damageMod * RoundSettings::instance->attackDamage);
+    return PyFloat_FromDouble(Ant::antTypes[self->type].damage * RoundSettings::instance->attackDamage);
 }
 
 
@@ -1847,7 +1847,7 @@ static PyObject* AntType_getcost(PyObject*op, void*closure)
         PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
         return nullptr;
     }
-    return PyFloat_FromDouble(Ant::antTypes[self->type].costMod * RoundSettings::instance->antCost);
+    return PyFloat_FromDouble(Ant::antTypes[self->type].cost * RoundSettings::instance->antCost);
 }
 
 
@@ -1859,7 +1859,7 @@ static PyObject* AntType_getspeed(PyObject*op, void*closure)
         PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
         return nullptr;
     }
-    return PyFloat_FromDouble(Ant::antTypes[self->type].speedMod * RoundSettings::instance->movementSpeed);
+    return PyFloat_FromDouble(Ant::antTypes[self->type].speed * RoundSettings::instance->movementSpeed);
 }
 
 
@@ -1871,7 +1871,7 @@ static PyObject* AntType_getattackrange(PyObject*op, void*closure)
         PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
         return nullptr;
     }
-    return PyFloat_FromDouble(Ant::antTypes[self->type].rangeMod * RoundSettings::instance->attackRange);
+    return PyFloat_FromDouble(Ant::antTypes[self->type].range * RoundSettings::instance->attackRange);
 }
 
 
@@ -1883,7 +1883,7 @@ static PyObject* AntType_getpickuprange(PyObject*op, void*closure)
         PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
         return nullptr;
     }
-    return PyFloat_FromDouble(Ant::antTypes[self->type].rangeMod * RoundSettings::instance->pickupRange);
+    return PyFloat_FromDouble(Ant::antTypes[self->type].range * RoundSettings::instance->pickupRange);
 }
 
 
@@ -1895,7 +1895,7 @@ static PyObject* AntType_getattackcooldown(PyObject*op, void*closure)
         PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
         return nullptr;
     }
-    return PyFloat_FromDouble(Ant::antTypes[self->type].rateMod * RoundSettings::instance->attackRate / RoundSettings::instance->timeScale);
+    return PyFloat_FromDouble(Ant::antTypes[self->type].rate * RoundSettings::instance->attackRate / RoundSettings::instance->timeScale);
 }
 
 
@@ -2385,7 +2385,7 @@ static bool Ant_edible(AntObject* self, PosObject* target, bool far)
     }
     Pos t = target->p;
     Ant*a = self->root->map->antPermanents[self->antID];
-    if (((DPos)t-a->p).magnitude() > RoundSettings::instance->pickupRange * Ant::antTypes[a->type].rangeMod && !far)
+    if (((DPos)t-a->p).magnitude() > RoundSettings::instance->pickupRange * Ant::antTypes[a->type].range && !far)
     {
         return false;
     }
@@ -2412,7 +2412,7 @@ static bool Ant_attackable(AntObject*self, AntObject* target, bool far)
     }
     Ant*a = self->root->map->antPermanents[self->antID];
     Ant*t = self->root->map->antPermanents[target->antID];
-    if ((a->p-t->p).magnitude() > RoundSettings::instance->attackRange * Ant::antTypes[a->type].rangeMod && !far)
+    if ((a->p-t->p).magnitude() > RoundSettings::instance->attackRange * Ant::antTypes[a->type].range && !far)
     {
         return false;
     }

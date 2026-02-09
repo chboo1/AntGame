@@ -177,21 +177,22 @@ class Ant
 
     struct AntType
     {
-        double damageMod;
-        double rateMod;
-        double costMod;
-        double healthMod;
-        double speedMod;
-        double capacity;
-        double rangeMod;
+        double damage; // HP
+        double rate; // seconds
+        double cost; // food (seconds)
+        double health; // HP
+        double speed; // tiles/second
+        double capacity; // food (seconds)
+        double range; // tiles
     };
 
     static const constexpr AntType antTypes[] = {
-        {1.0, 1.0, 1.0, 1.0, 1.0, 3.0, 1.0}, // 0 -> BASE
-        {2.0, 1.0, 1.5, 0.5, 1.0, 3.0, 1.0}, // 1 -> GLASS CANON
-        {0.5, 1.0, 1.5, 2.0, 1.0, 3.0, 1.0} // 2 -> TANK
+        {1.0, 0.1, 5.0, 5.0, 10.0, 3.0, 10.0}, // 0 -> BASE
+        {2.0, 0.1, 5.0, 2.5, 10.0, 3.0, 10.0}, // 1 -> GLASS CANON
+        {0.5, 0.1, 5.0, 10.0, 10.0, 3.0, 10.0}, // 2 -> TANK
+        {1.0, 0.1, 5.0, 1.0, 20.0, 5, 10.0} // 3 -> PEASANT
     };
 
-    static const unsigned char antTypec = 3;
+    static const unsigned char antTypec = 4;
 };
 #endif
