@@ -41,13 +41,13 @@ module: libs AntGameModule/AntGame.pyd
 
 AntGameModule/AntGame.pyd: source/AntGamemodule.cpp
 	g++ -std=c++14 -fpic -c source\\AntGameModule.cpp -IAntGameModule\\include -o AntGameModule\\AntGamemodule.o
-	g++ -std=c++14 -shared AntGameModule\\AntGamemodule.o out\\*.o -lws2_32 -o AntGameModule\\AntGame.pyd -LAntGameModule\\libs -lpython314
+	g++ -std=c++14 -fpic -shared AntGameModule\\AntGamemodule.o out\\*.o -lws2_32 -o AntGameModule\\AntGame.pyd -LAntGameModule\\libs -lpython314
 else
 module: libs AntGameModule/AntGame.so
 
 AntGameModule/AntGame.so: source/AntGamemodule.cpp
 	g++ -std=c++14 -fpic -c source/AntGameModule.cpp -IAntGameModule/include -o AntGameModule/AntGamemodule.o
-	g++ -std=c++14 -shared AntGameModule/AntGamemodule.o out/*.o -o AntGameModule/AntGame.so -LAntGameModule/libs -lpython3.14
+	g++ -std=c++14 -LAntGameModule/libs -lpython3.14 -shared AntGameModule/AntGamemodule.o out/*.o -o AntGameModule/AntGame.so
 endif
 
 
