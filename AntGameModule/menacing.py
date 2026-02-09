@@ -80,6 +80,8 @@ def onWaitAttack(ma):
         agc.setCallback(onNewAnt, "antNew")
         agc.setCallback(onWait, "antWait")
         agc.setCallback(onFrame, "gameFrame")
+        agc.setCallback(onHurt, "antHurt")
+        agc.setCallback(onHit, "antHit")
         for ant in agc.me.ants:
             if ant.isFull:
                 ant.goDeliver()

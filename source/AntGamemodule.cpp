@@ -1847,6 +1847,18 @@ static PyObject* AntType_getpickuprange(PyObject*op, void*closure)
 }
 
 
+static PyObject* AntType_getattackcooldown(PyObject*op, void*closure)
+{
+    AntTypeObject* self = (AntTypeObject*)op;
+    if (!RoundSettings::instance)
+    {
+        PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
+        return nullptr;
+    }
+    return PyFloat_FromDouble(Ant::antTypes[self->type].rateMod * RoundSettings::instance->attackRate) / Round::instance->timeScale;
+}
+
+
 static PyGetSetDef AntType_getsetters[] = {
     {"maxfood", AntType_getmaxfood, nullptr, "ant type's maximum food", nullptr},
     {"maxhealth", AntType_getmaxhealth, nullptr, "ant type's maximum health", nullptr},
@@ -1855,6 +1867,7 @@ static PyGetSetDef AntType_getsetters[] = {
     {"speed", AntType_getspeed, nullptr, "ant type's speed", nullptr},
     {"attackrange", AntType_getattackrange, nullptr, "ant type's attack range", nullptr},
     {"pickuprange", AntType_getpickuprange, nullptr, "ant type's pickup range", nullptr},
+    {"attackrate", AntType_getattackcooldown, nullptr, "ant type's attack cooldown", nullptr},
     {nullptr}
 };
 
@@ -2121,15 +2134,6 @@ static PyObject* Ant_getisEnemy(PyObject* op, void*closure)
 }
 
 
-static PyObject* Ant_getindex(PyObject* op, void*closure)
-{
-    AntObject*self = (AntObject*)op;
-    if (self)
-    {
-        return PyLong_FromUnsignedLong((unsigned long)self->antID);
-    }
-    return PyLong_FromUnsignedLong((unsigned long)UINT_MAX);
-}
 
 
 static PyObject* Ant_getisFull(PyObject* op, void*closure)
@@ -2324,9 +2328,8 @@ static PyGetSetDef Ant_getsetters[] = {
     {"isFriend", Ant_getisFriend, nullptr, "whether ant is a friend", nullptr},
     {"isEnemy", Ant_getisEnemy, nullptr, "whether ant is an enemy", nullptr},
     {"isFull", Ant_getisFull, nullptr, "whether ant has max food", nullptr},
-    {"index", Ant_getindex, nullptr, "ant's index in ants list", nullptr},
     {"target", Ant_gettarget, nullptr, "ant's target", nullptr},
-    {"parent", Ant_getparent, nullptr, "ant's parent nest", nullptr},
+    {"nest", Ant_getparent, nullptr, "ant's parent nest", nullptr},
     {"isAlive", Ant_getisAlive, nullptr, "whether ant is alive", nullptr},
     {"isSafe", Ant_getisSafe, nullptr, "whether ant is safe to unfreeze or access", nullptr},
     {"isFrozen", Ant_getisFrozen, nullptr, "whether ant is frozen", nullptr},
