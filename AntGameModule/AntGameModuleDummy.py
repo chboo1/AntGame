@@ -84,6 +84,14 @@ class AntGameClient:
 
 class Nest:
     """A nest within the map."""
+    def __eq__(self, other):
+        """Checks if this nest is the same as another nest."""
+        pass
+
+    def __ne__(self, other):
+        """Checks if this nest is not the same as another nest."""
+        pass
+
     @property
     def ants(self) -> Ant[]:
         """An array of each ant in this nest."""

@@ -1742,6 +1742,45 @@ static PyGetSetDef Nest_getsetters[] = {
 };
 
 
+static PyObject* Nest_richcompare(PyObject* op, PyObject* other, int operation)
+{
+    NestObject* self = (NestObject*)op;
+    NestObject* otherO = nullptr;
+    if (PyObject_TypeCheck(other, Py_TYPE(op)))
+    {
+        otherO = (NestObject*)other;
+    }
+    else
+    {
+        if (operation == Py_EQ)
+        {
+            Py_RETURN_FALSE;
+        }
+        else if (operation == Py_NE)
+        {
+            Py_RETURN_TRUE;
+        }
+    }
+    if (operation == Py_EQ)
+    {
+        if (self->nestID == otherO->nestID)
+        {
+            Py_RETURN_TRUE;
+        }
+        Py_RETURN_FALSE;
+    }
+    else if (operation == Py_NE)
+    {
+        if (self->nestID == otherO->nestID)
+        {
+            Py_RETURN_FALSE;
+        }
+        Py_RETURN_TRUE;
+    }
+    Py_RETURN_NOTIMPLEMENTED;
+}
+
+
 static PyTypeObject NestType = {
     .ob_base = PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "AntGame.Nest",
@@ -1750,6 +1789,7 @@ static PyTypeObject NestType = {
     .tp_flags = Py_TPFLAGS_DEFAULT,
     //TODO
     .tp_doc = PyDoc_STR("Placeholder doc string"),
+    .tp_richcompare = Nest_richcompare,
     .tp_getset = Nest_getsetters,
     .tp_new = PyType_GenericNew,
 };
@@ -1855,7 +1895,7 @@ static PyObject* AntType_getattackcooldown(PyObject*op, void*closure)
         PyErr_SetString(PyExc_RuntimeError, "Cannot get any attributes of an ant type before starting game, when the server has not told us the settings!");
         return nullptr;
     }
-    return PyFloat_FromDouble(Ant::antTypes[self->type].rateMod * RoundSettings::instance->attackRate) / Round::instance->timeScale;
+    return PyFloat_FromDouble(Ant::antTypes[self->type].rateMod * RoundSettings::instance->attackRate / RoundSettings::instance->timeScale);
 }
 
 
