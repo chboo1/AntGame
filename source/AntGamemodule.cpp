@@ -15,6 +15,10 @@
 #include "headers/network.hpp"
 #include "headers/map.hpp"
 
+#ifdef far // I have no fucking idea what moron defined a macro this simple, but I have to undef it on windows
+#undef far
+#endif
+
 
 struct PosObject
 {
@@ -47,8 +51,8 @@ static PyTypeObject PosType = {
     .tp_flags = Py_TPFLAGS_DEFAULT,
     //TODO
     .tp_doc = PyDoc_STR("Placeholder doc string"),
-    .tp_members = Pos_members,
     .tp_methods = Pos_methods,
+    .tp_members = Pos_members,
     .tp_new = PyType_GenericNew,
 };
 
@@ -146,7 +150,7 @@ static void AntGameClient_dealloc(PyObject* op)
 }
 
 
-static Pos AntGameClient_findNearestFood(AntGameClientObject*, Pos, bool(*)(AntGameClientObject*,Pos));
+static Pos AntGameClient_findNearestFood(AntGameClientObject* self, Pos center, bool (*checker)(AntGameClientObject*, Pos));
 static bool AntGameClient_isFood(AntGameClientObject*, Pos);
 static bool AntGameClient_isUnclaimedFood(AntGameClientObject*, Pos);
 
@@ -160,14 +164,21 @@ static PyObject* AntGameClient_new(PyTypeObject* type, PyObject* args, PyObject 
         self->map = nullptr;
         self->conn = nullptr;
         self->selfNestID = 0xff;
-        self->name = "";
+        new (&self->name) std::string;
+        self->name.clear();
+        new (&self->address) std::string;
         self->address = "127.0.0.1";
         self->port = ANTNET_DEFAULT_PORT;
+        new (&self->reqIDs) std::deque<ConnectionManager::RequestID>;
         self->reqIDs.clear();
+        new (&self->cmdIDs) std::deque<ConnectionManager::RequestID>;
         self->cmdIDs.clear();
+        new (&self->cmdIDs) std::deque<unsigned int>;
         self->cmdpids.clear();
+        new (&self->cmdIDs) std::deque<std::uint64_t>;
         self->cmdargs.clear();
-        self->recvData = "";
+        new (&self->recvData) std::string;
+        self->recvData.clear();
 
         self->onStart = nullptr;
         self->onFrame = nullptr;
@@ -180,21 +191,31 @@ static PyObject* AntGameClient_new(PyTypeObject* type, PyObject* args, PyObject 
         self->onFull = nullptr;
         self->onWait = nullptr;
 
+        new (&self->hitAnts) std::deque<unsigned int>;
         self->hitAnts.clear();
+        new (&self->newAnts) std::deque<unsigned int>;
         self->newAnts.clear();
+        new (&self->hurtAnts) std::deque<unsigned int>;
         self->hurtAnts.clear();
+        new (&self->deadAnts) std::deque<Ant>;
         self->deadAnts.clear();
+        new (&self->grabAnts) std::deque<unsigned int>;
         self->grabAnts.clear();
+        new (&self->deliverAnts) std::deque<unsigned int>;
         self->deliverAnts.clear();
+        new (&self->fullAnts) std::deque<unsigned int>;
         self->fullAnts.clear();
 
         self->nearestFoodData.gap = 5;
         self->nearestFoodData.current = 4;
         self->nearestFoodData.count = 2;
+        new (&self->nearestFoodData.gaps) std::deque<unsigned int>;
         self->nearestFoodData.gaps.clear();
         self->nearestFoodData.gaps.push_back(5);
+        new (&self->nearestFoodData.currents) std::deque<std::uint64_t>;
         self->nearestFoodData.currents.clear();
         self->nearestFoodData.currents.push_back(5);
+        new (&self->nearestFoodData.counts) std::deque<unsigned short>;
         self->nearestFoodData.counts.clear();
         self->nearestFoodData.counts.push_back(2);
     }
@@ -1204,6 +1225,8 @@ static PyObject* AntGameClient_start(PyObject* op, PyObject* args, PyObject* key
             dataIndex = 4;
             if (responsesLen < 8)
             {
+                std::cout << ConnectionManager::DEBUGstringToHex(self->recvData) << std::endl;
+                std::cout << responsesLen << std::endl;
                 PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in request length. Is this a modified server?");
                 AntGameClient_cleanup(self);
                 return nullptr;
@@ -1430,6 +1453,7 @@ static PyObject* AntGameClient_start(PyObject* op, PyObject* args, PyObject* key
             }
             if (rc == 0)
             {
+                std::cout << responsesLen << ", " << dataIndex << std::endl;
                 self->recvData.erase(0, responsesLen);
                 responsesLen = 0;
                 dataIndex = 0;
@@ -1646,8 +1670,8 @@ static PyTypeObject AntGameClientType = {
     .tp_flags = Py_TPFLAGS_DEFAULT,
     //TODO
     .tp_doc = PyDoc_STR("Placeholder doc string"),
-    .tp_members = AntGameClient_members,
     .tp_methods = AntGameClient_methods,
+    .tp_members = AntGameClient_members,
     .tp_getset = AntGameClient_getsetters,
     .tp_new = AntGameClient_new,
 };
@@ -1920,8 +1944,8 @@ static PyTypeObject AntTypeType = {
     .tp_flags = Py_TPFLAGS_DEFAULT,
     // TODO
     .tp_doc = PyDoc_STR("Placerholder doc string"),
-    .tp_getset = AntType_getsetters,
     .tp_richcompare = AntType_richcompare,
+    .tp_getset = AntType_getsetters,
     .tp_new = AntType_new,
 };
 
@@ -3222,10 +3246,10 @@ static PyTypeObject AntType = {
     .tp_flags = Py_TPFLAGS_DEFAULT,
     //TODO
     .tp_doc = PyDoc_STR("Placeholder doc string"),
+    .tp_richcompare = Ant_richcompare,
     .tp_methods = Ant_methods,
     .tp_getset = Ant_getsetters,
     .tp_new = PyType_GenericNew,
-    .tp_richcompare = Ant_richcompare,
 };
 
 
