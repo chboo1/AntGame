@@ -4,34 +4,34 @@ all: bin/AntGameServer bin/tests res bin/dummyClient module
 
 bin/tests: out/*.o source/tests.cpp
 ifeq ($(OS),Windows_NT)
-	g++ -std=c++14 out/*.o source/tests.cpp -lws2_32 -Isource/headers -o bin/tests
+	g++ -std=c++17 out/*.o source/tests.cpp -lws2_32 -Isource/headers -o bin/tests
 else
-	g++ -std=c++14 out/*.o source/tests.cpp -Isource/headers -o bin/tests
+	g++ -std=c++17 out/*.o source/tests.cpp -Isource/headers -o bin/tests
 endif
 
 
 bin/dummyClient: source/dummyClient.cpp out/*.o
 ifeq ($(OS),Windows_NT)
-	g++ -std=c++14 out/*.o source/dummyClient.cpp -lws2_32 -Isource/headers -o bin/dummyClient
+	g++ -std=c++17 out/*.o source/dummyClient.cpp -lws2_32 -Isource/headers -o bin/dummyClient
 else
-	g++ -std=c++14 out/*.o source/dummyClient.cpp -Isource/headers -o bin/dummyClient
+	g++ -std=c++17 out/*.o source/dummyClient.cpp -Isource/headers -o bin/dummyClient
 endif
 
 
 bin/AntGameServer: source/server.cpp out/*.o
 ifeq ($(OS),Windows_NT)
-	g++ -std=c++14 out/*.o source/server.cpp -lws2_32 -Isource/headers -o bin/AntGameServer
+	g++ -std=c++17 out/*.o source/server.cpp -lws2_32 -Isource/headers -o bin/AntGameServer
 else
-	g++ -std=c++14 out/*.o source/server.cpp -Isource/headers -o bin/AntGameServer
+	g++ -std=c++17 out/*.o source/server.cpp -Isource/headers -o bin/AntGameServer
 endif
 
 
 out/*.o: source/lib/*.cpp
 ifeq ($(OS),Windows_NT)
-	cd source/lib && g++ -std=c++14 -c *.cpp -I../headers
+	cd source/lib && g++ -std=c++17 -c *.cpp -I../headers
 	move /y source\\lib\\*.o out\\
 else
-	cd source/lib; g++ -std=c++14 -c *.cpp -I../headers
+	cd source/lib; g++ -std=c++17 -c *.cpp -I../headers
 	mv source/lib/*.o out
 endif
 
@@ -40,22 +40,22 @@ ifeq ($(OS), Windows_NT)
 module: libs AntGameModule/AntGame.pyd
 
 AntGameModule/AntGame.pyd: source/AntGamemodule.cpp
-	g++ -std=c++14 -fpic -c source\\AntGameModule.cpp -IAntGameModule\\include -o AntGameModule\\AntGamemodule.o
-	g++ -std=c++14 -shared AntGameModule\\AntGamemodule.o -lws2_32 -o AntGameModule\\AntGame.pyd -LAntGameModule\\libs -lpython314
+	g++ -std=c++17 -fpic -c source\\AntGameModule.cpp -IAntGameModule\\include -o AntGameModule\\AntGamemodule.o
+	g++ -std=c++17 -shared AntGameModule\\AntGamemodule.o -lws2_32 -o AntGameModule\\AntGame.pyd -LAntGameModule\\libs -lpython314
 else
 module: libs AntGameModule/AntGame.so
 
 AntGameModule/AntGame.so: source/AntGamemodule.cpp
-	g++ -std=c++14 -fpic -c source/AntGameModule.cpp -IAntGameModule/include -o AntGameModule/AntGamemodule.o
-	g++ -std=c++14 -shared AntGameModule/AntGamemodule.o out/*.o -o AntGameModule/AntGame.so -LAntGameModule/libs -lpython3.14
+	g++ -std=c++17 -fpic -c source/AntGameModule.cpp -IAntGameModule/include -o AntGameModule/AntGamemodule.o
+	g++ -std=c++17 -shared AntGameModule/AntGamemodule.o out/*.o -o AntGameModule/AntGame.so -LAntGameModule/libs -lpython3.14
 endif
 
 
 bin/mapMaker: source/resources/mapMaker.cpp
-	g++ -std=c++14 source/resources/mapMaker.cpp -o bin/mapMaker
+	g++ -std=c++17 source/resources/mapMaker.cpp -o bin/mapMaker
 
 bin/mapMakerSmall: source/resources/mapMakerSmall.cpp
-	g++ -std=c++14 source/resources/mapMakerSmall.cpp -o bin/mapMakerSmall
+	g++ -std=c++17 source/resources/mapMakerSmall.cpp -o bin/mapMakerSmall
 
 libs: out/*.o
 
