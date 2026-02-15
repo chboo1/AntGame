@@ -250,6 +250,10 @@ class Ant:
 
 class AntType:
     """A type of ant."""
+
+    def __init__(self, type: int):
+        """Initialize ant of specified type"""
+
     def __eq__(self, other) -> bool:
         """Checks whether this and another type are the same."""
         pass
