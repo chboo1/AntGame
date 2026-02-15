@@ -1,4 +1,4 @@
-#This file is a dummy that is only a description of the module. It should not be expected to replace or even work alongside the true module, but only for reference. i.e., it should not be imported.
+from typing import List
 
 class Pos:
     """A position."""
@@ -13,15 +13,15 @@ class Pos:
 class AntGameClient:
     """The central class within which all the game's data is stored."""
     @property
-    def nests(self) -> Nest[]:
+    def nests(self) -> List[Nest]:
         """An array of every nest in the map."""
         pass
     @property
-    def ants(self) -> Ant[]:
+    def ants(self) -> List[Ant]:
         """An array of every ant in the map."""
         pass
     @property
-    def enemies(self) -> Ant[]:
+    def enemies(self) -> List[Ant]:
         """An array of every enemy ant in the map."""
         pass
     @property
@@ -93,7 +93,7 @@ class Nest:
         pass
 
     @property
-    def ants(self) -> Ant[]:
+    def ants(self) -> List[Ant]:
         """An array of each ant in this nest."""
         pass
 
@@ -252,6 +252,10 @@ class Ant:
 
 class AntType:
     """A type of ant."""
+
+    def __init__(self, type: int):
+        """Initialize ant of specified type"""
+
     def __eq__(self, other) -> bool:
         """Checks whether this and another type are the same."""
         pass

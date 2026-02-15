@@ -1,9 +1,9 @@
-import AntGame
+from AntGame import *
 import os
-agc = AntGame.AntGameClient()
+agc = AntGameClient()
 
-defaultAnt = AntGame.AntType(0)
-attackerAnt = AntGame.AntType(1)
+defaultAnt = AntType(0)
+attackerAnt = AntType(1)
 
 
 def onFrame():
@@ -19,7 +19,7 @@ def onStart():
         ant.goTake(agc.nearestFreeFood())
 
 
-def onWait(ma):
+def onWait(ma: Ant):
     if ma.type == defaultAnt:
         if not ma.isFull:
             ma.goTake(ma.nearestFreeFood())
@@ -29,7 +29,7 @@ def onWait(ma):
 #        ma.followAttack(ma.nearestEnemy())
 
 
-def onDeliver(ma):
+def onDeliver(ma: Ant):
     ma.goTake(agc.nearestFreeFood())
     if len(agc.me.ants) % 10 == 0:
         if agc.me.food > 60 + defaultAnt.cost:
@@ -39,19 +39,19 @@ def onDeliver(ma):
             agc.newAnt(attackerAnt)
 
 
-def onGrab(ma):
+def onGrab(ma: Ant):
     if not ma.isFull:
         ma.goTake(ma.nearestFreeFood())
     else:
         ma.goDeliver()
 
 
-def onNewAnt(ma):
+def onNewAnt(ma: Ant):
     if ma.type == defaultAnt:
         ma.goTake(agc.nearestFreeFood())
 
 
-def onHurt(ma):
+def onHurt(ma: Ant):
     ma.followAttack(ma.nearestEnemy())
 
 

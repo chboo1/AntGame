@@ -1,8 +1,8 @@
-import AntGame
+from AntGame import *
 import os
-agc = AntGame.AntGameClient()
+agc = AntGameClient()
 
-defaultAnt = AntGame.AntType(0)
+defaultAnt = AntType(0)
 
 
 def onStart():
@@ -12,13 +12,13 @@ def onStart():
         ant.goTake(agc.nearestFreeFood())
 
 
-def onDeliver(ma):
+def onDeliver(ma: Ant):
     ma.goTake(agc.nearestFreeFood())
     if agc.me.food > 60 + defaultAnt.cost:
         agc.newAnt(defaultAnt)
 
 
-def onGrab(ma):
+def onGrab(ma: Ant):
     if not ma.isFull:
         target = ma.nearestFreeFood()
         if target is not None:
@@ -27,7 +27,7 @@ def onGrab(ma):
         ma.goDeliver()
 
 
-def onNewAnt(ma):
+def onNewAnt(ma: Ant):
     if ma.type == defaultAnt:
         ma.goTake(agc.nearestFreeFood())
 
