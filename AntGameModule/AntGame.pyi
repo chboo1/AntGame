@@ -1,3 +1,5 @@
+from typing import List
+
 class Pos:
     """A position."""
     x:float = 0.0
@@ -11,15 +13,15 @@ class Pos:
 class AntGameClient:
     """The central class within which all the game's data is stored."""
     @property
-    def nests(self) -> Nest[]:
+    def nests(self) -> List[Nest]:
         """An array of every nest in the map."""
         pass
     @property
-    def ants(self) -> Ant[]:
+    def ants(self) -> List[Ant]:
         """An array of every ant in the map."""
         pass
     @property
-    def enemies(self) -> Ant[]:
+    def enemies(self) -> List[Ant]:
         """An array of every enemy ant in the map."""
         pass
     @property
@@ -91,7 +93,7 @@ class Nest:
         pass
 
     @property
-    def ants(self) -> Ant[]:
+    def ants(self) -> List[Ant]:
         """An array of each ant in this nest."""
         pass
 
