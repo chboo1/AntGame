@@ -1,5 +1,3 @@
-#This file is a dummy that is only a description of the module. It should not be expected to replace or even work alongside the true module, but only for reference. i.e., it should not be imported.
-
 class Pos:
     """A position."""
     x:float = 0.0
