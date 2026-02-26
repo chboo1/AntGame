@@ -1,13 +1,13 @@
-import AntGame
+from AntGame import *
 import os
 import math
-agc = AntGame.AntGameClient()
+agc = AntGameClient()
 
-defaultAnt = AntGame.AntType(0)
-speedyAnt = AntGame.AntType(3)
+defaultAnt = AntType(0)
+speedyAnt = AntType(3)
 
 
-def nextFood(a):
+def nextFood(a: Ant):
     if a.isFull:
         a.goDeliver()
     else:
@@ -36,7 +36,7 @@ def onFrame():
                 ant.followAttack(ant.nearestEnemy())
 
 
-def onDeliver(ma):
+def onDeliver(ma: Ant):
     ma.goTake(agc.nearestFreeFood())
     if agc.me.food > 60 + defaultAnt.cost:
         if len(agc.me.ants) % 2 == 0:
@@ -45,29 +45,29 @@ def onDeliver(ma):
             agc.newAnt(speedyAnt)
 
 
-def onGrab(ma):
+def onGrab(ma: Ant):
     if not ma.isFull:
         ma.goTake(ma.nearestFreeFood())
     else:
         ma.goDeliver()
 
 
-def onNewAnt(ma):
+def onNewAnt(ma: Ant):
     ma.goTake(agc.nearestFreeFood())
 
 
-def onWait(ma):
+def onWait(ma: Ant):
     nextFood(ma)
 
 
-def onHurt(ma):
+def onHurt(ma: Ant):
     ma.followAttack(ma.nearestEnemy())
 
 
-def onHit(ma):
-    if ant.nearestEnemy() is None:
+def onHit(ma: Ant):
+    if ma.nearestEnemy() is None:
         ma.goDeliver()
-    elif ant.pos.dist(ant.nearestEnemy().pos) > defaultAnt.attackRange * 3:
+    elif ma.pos.dist(ma.nearestEnemy().pos) > defaultAnt.attackRange * 3:
         ma.goDeliver()
     else:
         ma.followAttack(ma.nearestEnemy())
@@ -75,7 +75,7 @@ def onHit(ma):
 
 
 
-def onWaitAttack(ma):
+def onWaitAttack(ma: Ant):
     print("Waiting")
     ma.followAttack(ma.nearestEnemy())
     if ma.nearestEnemy() is None:
