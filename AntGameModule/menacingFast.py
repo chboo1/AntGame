@@ -1,10 +1,10 @@
-import AntGame
+from AntGame import *
 import os
 import math
-agc = AntGame.AntGameClient()
+agc = AntGameClient()
 
-defaultAnt = AntGame.AntType(0)
-speedyAnt = AntGame.AntType(3)
+defaultAnt = AntType(0)
+speedyAnt = AntType(3)
 
 defaultAntAmount = 5
 speedyAntAmount = 0
@@ -12,7 +12,7 @@ speedyAntAmount = 0
 flagDict = {}
 
 
-def nextFood(a):
+def nextFood(a: Ant):
     if a.isFull:
         a.goDeliver()
     else:
@@ -82,7 +82,7 @@ def onWaitAttack(ma):
                     ant.goTake(agc.nearestFreeFood())
 
 
-def onDeliver(ma):
+def onDeliver(ma: Ant):
     global defaultAntAmount
     global speedyAntAmount
     ma.goTake(agc.nearestFreeFood())
@@ -93,14 +93,14 @@ def onDeliver(ma):
             agc.newAnt(speedyAnt)
 
 
-def onGrab(ma):
+def onGrab(ma: Ant):
     if not ma.isFull:
         ma.goTake(ma.nearestFreeFood())
     else:
         ma.goDeliver()
 
 
-def onDeath(ma):
+def onDeath(ma : Ant):
     global defaultAntAmount
     global speedyAntAmount
     global flagDict
@@ -112,7 +112,7 @@ def onDeath(ma):
         speedyAntAmount -= 1
 
 
-def onNewAnt(ma):
+def onNewAnt(ma : Ant):
     global defaultAntAmount
     global speedyAntAmount
     global flagDict
@@ -124,11 +124,11 @@ def onNewAnt(ma):
         speedyAntAmount += 1
 
 
-def onHurt(ma):
+def onHurt(ma: Ant):
     ma.followAttack(ma.nearestEnemy())
 
 
-def onHit(ma):
+def onHit(ma : Ant):
     print("onHit")
     global flagDict
     if not flagDict[ma.id]["attacking"]:

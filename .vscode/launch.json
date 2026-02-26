@@ -1,0 +1,16 @@
+{
+    "configurations": [
+    {
+        "name": "AntGameServer",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceRoot}/bin/AntGameServer",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceRoot}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "lldb"
+    }
+    ]
+}
