@@ -1740,7 +1740,7 @@ bool ConnectionManager::interpretRequests(Player* p)
                                         if (n)
                                         {
                                             msg.append(makeAGNPdoublestr(n->foodCount));
-                                            msg.push_back((char)(unsigned char)std::min(n->ants.size(), (std::size_t)0xfe));
+                                            msg.push_back((char)(unsigned char)std::min(n->ants.size(), (std::size_t)0xff));
                                             unsigned char anti = 0;
                                             for (Ant * a : n->ants)
                                             {

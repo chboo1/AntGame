@@ -886,7 +886,7 @@ static bool AntGameClient_running(AntGameClientObject* self)
                             }
                             if (n)
                             {
-                                if (self->recvData.compare(dataIndex, 8, "\xff\xff\xff\xff\xff\xff\xff\xff") == 0 || self->recvData[dataIndex+8] == '\xff')
+                                if (self->recvData.compare(dataIndex, 8, "\xff\xff\xff\xff\xff\xff\xff\xff") == 0)
                                 {
                                     n->salute();
                                     delete n;
@@ -1225,8 +1225,6 @@ static PyObject* AntGameClient_start(PyObject* op, PyObject* args, PyObject* key
             dataIndex = 4;
             if (responsesLen < 8)
             {
-                std::cout << ConnectionManager::DEBUGstringToHex(self->recvData) << std::endl;
-                std::cout << responsesLen << std::endl;
                 PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in request length. Is this a modified server?");
                 AntGameClient_cleanup(self);
                 return nullptr;
@@ -1273,6 +1271,7 @@ static PyObject* AntGameClient_start(PyObject* op, PyObject* args, PyObject* key
                                 }
                                 gameStarted = true;
                                 self->selfNestID = (unsigned char)self->recvData[dataIndex];
+                                dataIndex++;
                                 break;
                             default:
                                 PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in unsolicited response ID. Is this a modified server?");
@@ -1392,7 +1391,7 @@ static PyObject* AntGameClient_start(PyObject* op, PyObject* args, PyObject* key
                                 AntGameClient_cleanup(self);
                                 return nullptr;
                             }
-                            if (self->recvData.compare(dataIndex, 8, "\xff\xff\xff\xff\xff\xff\xff\xff") * self->recvData.compare(dataIndex+8, 2, "\xff\xff") * self->recvData.compare(dataIndex+10, 2, "\xff\xff") == 0 || self->recvData[dataIndex+12] == '\xff')
+                            if (self->recvData.compare(dataIndex, 8, "\xff\xff\xff\xff\xff\xff\xff\xff") * self->recvData.compare(dataIndex+8, 2, "\xff\xff") * self->recvData.compare(dataIndex+10, 2, "\xff\xff") == 0)
                             {
                                 self->map->nests.push_back(nullptr);
                                 dataIndex += 13;
@@ -1453,7 +1452,6 @@ static PyObject* AntGameClient_start(PyObject* op, PyObject* args, PyObject* key
             }
             if (rc == 0)
             {
-                std::cout << responsesLen << ", " << dataIndex << std::endl;
                 self->recvData.erase(0, responsesLen);
                 responsesLen = 0;
                 dataIndex = 0;
@@ -1479,7 +1477,6 @@ static PyObject* AntGameClient_start(PyObject* op, PyObject* args, PyObject* key
         AntGameClient_cleanup(self);
         return nullptr;
     }
-    
     if (!AntGameClient_running(self))
     {
         AntGameClient_cleanup(self);
@@ -2360,11 +2357,27 @@ static PyObject* Ant_getisFrozen(PyObject*op, void*closure)
 }
 
 
+static PyObject* Ant_getid(PyObject* op, void* closure)
+{
+    AntObject*self = (AntObject*)op;
+    if (self->antID != UINT_MAX)
+    {
+        return PyLong_FromUnsignedLong((unsigned long)self->antID);
+    }
+    if (self->echo.type != 0xff && self->echo.pid != UINT_MAX)
+    {
+        return PyLong_FromUnsignedLong((unsigned long)self->echo.pid);
+    }
+    Py_RETURN_NONE;
+}
+
+
 static PyGetSetDef Ant_getsetters[] = {
     {"food", Ant_getfood, nullptr, "ant's food", nullptr},
     {"health", Ant_gethealth, nullptr, "ant's health", nullptr},
     {"type", Ant_gettype, nullptr, "ant's type", nullptr},
     {"pos", Ant_getpos, nullptr, "ant's position", nullptr},
+    {"id", Ant_getid, nullptr, "ant's ID", nullptr},
     {"isFriend", Ant_getisFriend, nullptr, "whether ant is a friend", nullptr},
     {"isEnemy", Ant_getisEnemy, nullptr, "whether ant is an enemy", nullptr},
     {"isFull", Ant_getisFull, nullptr, "whether ant has max food", nullptr},

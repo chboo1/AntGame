@@ -28,6 +28,7 @@ int main(int argc, char*args[])
     char prevArg = '\0';
     std::string configFile = "";
     int port = -1;
+    double fps = -1;
     bool logging = false;
     bool statsKeeping = false;
     for (int i = 1; i < argc; i++)
@@ -58,6 +59,14 @@ int main(int argc, char*args[])
                                 }
                                 prevArg = arg[j];
                                 break;
+                            case 'F':
+                                if (fps >= 0)
+                                {
+                                    std::cerr << "Please only use the parameter '-F' once." << std::endl;
+                                    return 2;
+                                }
+                                prevArg = arg[j]; 
+                                break;
                             case 'l':
                                 logging = true;
                                 break;
@@ -87,11 +96,24 @@ int main(int argc, char*args[])
                 prevArg = '\0';
                 configFile = arg;
                 break;
+            case 'F':
+                prevArg = '\0';
+                fps = std::stod(arg);
+                if (fps <= 0)
+                {
+                    std::cerr << "The server cannot run at 0 or negative fps." << std::endl;
+                    return 2;
+                }
+                break;
         }
     }
     if (configFile.empty())
     {
         configFile = "antgame.cfg";
+    }
+    if (fps < 0)
+    {
+        fps = 120;
     }
     Round r;
     r.logging = logging;
@@ -104,7 +126,7 @@ int main(int argc, char*args[])
             r.step();
             auto end = std::chrono::steady_clock::now();
             //std::cout << "UFPS: " << 1.0 / std::chrono::duration<double>(end-start).count() << std::endl;
-            for (;std::chrono::duration<double>(end-start).count() * 120.0 < 1.0;end = std::chrono::steady_clock::now())
+            for (;std::chrono::duration<double>(end-start).count() * fps < 1.0;end = std::chrono::steady_clock::now())
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }

@@ -760,7 +760,7 @@ void Nest::step(double delta)
         switch (cmd.cmd)
         {
             case NestCommand::ID::NEWANT:
-                if (foodCount < Ant::antTypes[cmd.arg].cost * RoundSettings::instance->antCost || ants.size() >= 254)
+                if (foodCount < Ant::antTypes[cmd.arg].cost * RoundSettings::instance->antCost || ants.size() >= 255)
                 {
                     cmd.state = NestCommand::State::FAIL;
                     break;
@@ -995,13 +995,17 @@ void Ant::step(double delta)
                     switch ((*parent->parent)[target])
                     {
                         case Map::Tile::FOOD:
-                            if (Ant::antTypes[type].capacity * RoundSettings::instance->capacityMod < foodCarry + RoundSettings::instance->foodYield)
+                            if (Ant::antTypes[type].capacity * RoundSettings::instance->capacityMod <= foodCarry)
                             {
                                 cmd.state = AntCommand::State::FAIL;
                             }
                             else
                             {
                                 foodCarry += RoundSettings::instance->foodYield;
+                                if (foodCarry > Ant::antTypes[type].capacity * RoundSettings::instance->capacityMod)
+                                {
+                                    foodCarry = Ant::antTypes[type].capacity * RoundSettings::instance->capacityMod;
+                                }
                                 parent->parent->map[target.x+target.y*parent->parent->size.x] = (unsigned char)Map::Tile::EMPTY;
                                 cmd.state = AntCommand::State::SUCCESS;
                                 ConnectionManager::MapEvent me;
@@ -1086,6 +1090,10 @@ void Ant::step(double delta)
                 if (ea->health <= 0)
                 {
                     parent->stats.kills++;
+                }
+                if (ea->health > Ant::antTypes[type].health * RoundSettings::instance->antHealth)
+                {
+                    ea->health = Ant::antTypes[type].health * RoundSettings::instance->antHealth;
                 }
                 break;}
             default:{
