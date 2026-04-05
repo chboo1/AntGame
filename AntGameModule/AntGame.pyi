@@ -1,5 +1,3 @@
-from typing import List
-
 class Pos:
     """A position."""
     x:float = 0.0
@@ -9,19 +7,18 @@ class Pos:
         pass
 
 
-
 class AntGameClient:
     """The central class within which all the game's data is stored."""
     @property
-    def nests(self) -> List[Nest]:
+    def nests(self) -> list[Nest]:
         """An array of every nest in the map."""
         pass
     @property
-    def ants(self) -> List[Ant]:
+    def ants(self) -> list[Ant]:
         """An array of every ant in the map."""
         pass
     @property
-    def enemies(self) -> List[Ant]:
+    def enemies(self) -> list[Ant]:
         """An array of every enemy ant in the map."""
         pass
     @property
@@ -81,7 +78,6 @@ class AntGameClient:
         pass
 
 
-
 class Nest:
     """A nest within the map."""
     def __eq__(self, other):
@@ -93,7 +89,7 @@ class Nest:
         pass
 
     @property
-    def ants(self) -> List[Ant]:
+    def ants(self) -> list[Ant]:
         """An array of each ant in this nest."""
         pass
 
@@ -106,7 +102,6 @@ class Nest:
     def food(self) -> float:
         """The nest's food."""
         pass
-
 
 
 class Ant:
@@ -247,7 +242,6 @@ class Ant:
     def unfreeze(self) -> None:
         """Unfreeze a frozen ant, such that it once more refers to the present version of that ant. A warning will be raised if this ant is now dead, and this function will do nothing. See freeze() for more info on frozen ants."""
         pass
-
 
 
 class AntType:
