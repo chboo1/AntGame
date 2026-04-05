@@ -25,3 +25,4 @@ AntGameModule/AntGamemodule.o
 AntGameModule/backups/
 *.dll
 __pycache__/
+logs/*.log
