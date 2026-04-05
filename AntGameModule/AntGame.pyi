@@ -224,14 +224,14 @@ class Ant:
         """Find the nearest food to this ant that no friendly ant is targetting."""
         pass
 
-    def nearestAnt(self) -> Pos:
+    def nearestAnt(self) -> Ant:
         """Find the nearest other ant to this ant."""
  
-    def nearestEnemy(self) -> Pos:
+    def nearestEnemy(self) -> Ant:
         """Find the nearest enemy ant to this ant."""
         pass
  
-    def nearestFriend(self) -> Pos:
+    def nearestFriend(self) -> Ant:
         """Find the nearest friendly ant to this ant."""
         pass
 
