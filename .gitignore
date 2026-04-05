@@ -22,4 +22,6 @@ AntGameModule/libs/*
 AntGameModule/AntGame.pyd
 AntGameModule/AntGame.so
 AntGameModule/AntGamemodule.o
+AntGameModule/backups/
 *.dll
+__pycache__/
