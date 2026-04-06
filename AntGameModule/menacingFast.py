@@ -1,15 +1,13 @@
 from AntGame import *
+from AntTypes import *
 import os
 import math
 agc = AntGameClient()
 
-defaultAnt = AntType(0)
-speedyAnt = AntType(3)
-
 defaultAntAmount = 5
 speedyAntAmount = 0
 
-flagDict = {}
+flagDict = dict()
 
 
 def nextFood(a: Ant):
@@ -20,6 +18,7 @@ def nextFood(a: Ant):
 
 
 def onStart():
+    global flagDict
     for ant in agc.me.ants:
         ant.goTake(agc.nearestFreeFood())
         flagDict[ant.id] = {"attacking":False}
@@ -31,41 +30,42 @@ def onFrame():
         for ant in agc.me.ants:
             if flagDict.get(ant.id) is None:
                 flagDict[ant.id] = {"attacking":False}
-            if ant.type == defaultAnt:
+            if ant.type == AntTypes.DEFAULT_ANT.value:
                 flagDict[ant.id]["attacking"] = True
                 ant.followAttack(ant.nearestEnemy())
 
     if len(agc.me.ants) < 1:
-        for i in range(0, math.floor((agc.me.food-60) / speedyAnt.cost)):
-            agc.newAnt(speedyAnt)
+        for _ in range(0, math.floor((agc.me.food-60) / AntTypes.PEASANT_ANT.value.cost)):
+            agc.newAnt(AntTypes.PEASANT_ANT.value)
 
     for ant in agc.me.ants:
         if flagDict.get(ant.id) is None:
             flagDict[ant.id] = {"attacking":False}
-        if not flagDict.get(ant.id)["attacking"]:
+        if not flagDict[ant.id]["attacking"]:
             onFrameNormal(ant)
         else:
             onFrameAttack(ant)
 
 
-def onFrameNormal(ant):
-    if ant.nearestEnemy() is not None and ant.pos.dist(ant.nearestEnemy().pos) < defaultAnt.attackrange * 3:
+def onFrameNormal(ant: Ant):
+    if ant.nearestEnemy() is not None and ant.pos.dist(ant.nearestEnemy().pos) < AntTypes.DEFAULT_ANT.value.attackrange * 3:
         if ant.target != ant.nearestEnemy():
             ant.followAttack(ant.nearestEnemy())
 
 
-def onFrameAttack(ant):
+def onFrameAttack(ant: Ant):
     pass
 
 
-def onWait(ma):
+def onWait(ma: Ant):
+    global flagDict
     if flagDict[ma.id]["attacking"]:
         onWaitAttack(ma)
     else:
         onWaitNormal(ma)
 
 
-def onWaitNormal(ma):
+def onWaitNormal(ma: Ant):
     nextFood(ma)
 
 
@@ -86,11 +86,11 @@ def onDeliver(ma: Ant):
     global defaultAntAmount
     global speedyAntAmount
     ma.goTake(agc.nearestFreeFood())
-    if agc.me.food > 60 + defaultAnt.cost:
+    if agc.me.food > 60 + AntTypes.DEFAULT_ANT.value.cost:
         if speedyAntAmount > defaultAntAmount:
-            agc.newAnt(defaultAnt)
+            agc.newAnt(AntTypes.DEFAULT_ANT.value)
         else:
-            agc.newAnt(speedyAnt)
+            agc.newAnt(AntTypes.PEASANT_ANT.value)
 
 
 def onGrab(ma: Ant):
@@ -100,13 +100,13 @@ def onGrab(ma: Ant):
         ma.goDeliver()
 
 
-def onDeath(ma : Ant):
+def onDeath(ma: Ant):
     global defaultAntAmount
     global speedyAntAmount
     global flagDict
-    if flagDict.get(ma.id) is not None:
+    if ma.id in flagDict:
         del flagDict[ma.id]
-    if ma.type == defaultAnt:
+    if ma.type == AntTypes.DEFAULT_ANT.value:
         defaultAntAmount -= 1
     else:
         speedyAntAmount -= 1
@@ -118,7 +118,7 @@ def onNewAnt(ma : Ant):
     global flagDict
     flagDict[ma.id] = {"attacking":False}
     ma.goTake(agc.nearestFreeFood())
-    if ma.type == defaultAnt:
+    if ma.type == AntTypes.DEFAULT_ANT.value:
         defaultAntAmount += 1
     else:
         speedyAntAmount += 1
@@ -128,13 +128,13 @@ def onHurt(ma: Ant):
     ma.followAttack(ma.nearestEnemy())
 
 
-def onHit(ma : Ant):
+def onHit(ma: Ant):
     print("onHit")
     global flagDict
     if not flagDict[ma.id]["attacking"]:
         if ma.nearestEnemy() is None:
             ma.goDeliver()
-        elif ant.pos.dist(ant.nearestEnemy().pos) > defaultAnt.attackRange * 3:
+        elif ma.pos.dist(ma.nearestEnemy().pos) > AntTypes.DEFAULT_ANT.value.attackRange * 3:
             ma.goDeliver()
         else:
             ma.followAttack(ma.nearestEnemy())
@@ -144,7 +144,7 @@ def onHit(ma : Ant):
 
 
 agc.port = 42069
-agc.name = os.path.basename(__file__)
+agc.name = f'{os.path.splitext(os.path.basename(__file__))[0]}_{os.getpid()}'
 agc.setCallback(onStart, "gameStart")
 agc.setCallback(onFrame, "gameFrame")
 agc.setCallback(onWait, "antWait")
