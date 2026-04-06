@@ -144,7 +144,7 @@ def onHit(ma: Ant):
 
 
 agc.port = 42069
-agc.name = os.path.basename(__file__)
+agc.name = f'{os.path.splitext(os.path.basename(__file__))[0]}_{os.getpid()}'
 agc.setCallback(onStart, "gameStart")
 agc.setCallback(onFrame, "gameFrame")
 agc.setCallback(onWait, "antWait")
