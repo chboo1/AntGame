@@ -1,7 +1,17 @@
 #!/bin/bash
 
+GAME_NAME=""
+PORT=""
+while [[ "$1" == -* ]]; do
+    case "$1" in
+        -n) GAME_NAME="$2"; shift 2 ;;
+        -p) PORT="$2"; shift 2 ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+done
+
 if [[ $# != 4 ]]; then
-    echo "Must specify 4 client names as parameters (with .py extension)"
+    echo "Usage: game.sh [-n name] [-p port] client1.py client2.py client3.py client4.py"
     exit 1
 fi
 
@@ -16,21 +26,30 @@ done
 killall AntGameServer 2>/dev/null
 
 # start game server
-bin/AntGameServer -l -s &
+SERVER_ARGS="-l -s"
+[[ -n "$GAME_NAME" ]] && SERVER_ARGS="$SERVER_ARGS -n $GAME_NAME"
+[[ -n "$PORT" ]] && SERVER_ARGS="$SERVER_ARGS -p $PORT"
+set -x
+bin/AntGameServer $SERVER_ARGS &
+set +x
 server_pid=$!
 echo "Server PID: $server_pid"
 
+# Port arg for python clients (empty string if not set, so no arg passed)
+CLIENT_ARGS=""
+[[ -n "$PORT" ]] && CLIENT_ARGS="$PORT"
+
 # start all 4 in the background, gather the pids, and wait for them to finish
-python3 AntGameModule/$1 &
+python3 AntGameModule/$1 $CLIENT_ARGS &
 pid1=$!
 echo "Player 1 ($1) PID: $pid1"
-python3 AntGameModule/$2 &
+python3 AntGameModule/$2 $CLIENT_ARGS &
 pid2=$!
 echo "Player 2 ($2) PID: $pid2"
-python3 AntGameModule/$3 &
+python3 AntGameModule/$3 $CLIENT_ARGS &
 pid3=$!
 echo "Player 3 ($3) PID: $pid3"
-python3 AntGameModule/$4 &
+python3 AntGameModule/$4 $CLIENT_ARGS &
 pid4=$!
 echo "Player 4 ($4) PID: $pid4"
 

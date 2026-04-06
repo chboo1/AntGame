@@ -27,6 +27,7 @@ int main(int argc, char*args[])
 #endif
     char prevArg = '\0';
     std::string configFile = "";
+    std::string gameName = "";
     int port = -1;
     double fps = -1;
     bool logging = false;
@@ -73,6 +74,9 @@ int main(int argc, char*args[])
                             case 'L':
                                 logging = false;
                                 break;
+                            case 'n':
+                                prevArg = arg[j];
+                                break;
                             case 's':
                                 statsKeeping = true;
                                 break;
@@ -105,6 +109,10 @@ int main(int argc, char*args[])
                     return 2;
                 }
                 break;
+            case 'n':
+                prevArg = '\0';
+                gameName = arg;
+                break;
         }
     }
     if (configFile.empty())
@@ -118,7 +126,9 @@ int main(int argc, char*args[])
     Round r;
     r.logging = logging;
     r.statsKeeping = statsKeeping;
-    if (r.open())
+    if (!gameName.empty())
+        r.gameName = gameName;
+    if (r.open(configFile, port))
     {
         while (r.phase != Round::CLOSED && r.phase != Round::INIT)
         {

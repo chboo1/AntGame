@@ -1064,6 +1064,10 @@ bool ConnectionManager::sendResponse(Viewer* v, std::string header, std::string 
             {
                 fileData.replace(widthpos, 8, std::to_string(Round::instance->map->size.y));
             }
+            for (size_t namepos = fileData.find("__GAMENAME__"); namepos != std::string::npos; namepos = fileData.find("__GAMENAME__"))
+            {
+                fileData.replace(namepos, 12, Round::instance->gameName);
+            }
             filesize = fileData.length();
         }
         std::string contentSize = "Server: Toilet\r\nContent-Length: " + std::to_string(filesize) + "\r\n\r\n";

@@ -1,5 +1,6 @@
 from AntGame import *
 import os
+import sys
 agc = AntGameClient()
 
 defaultAnt = AntType(0)
@@ -33,7 +34,7 @@ def onNewAnt(ma: Ant):
 
 
 
-agc.port = 42069
+agc.port = int(sys.argv[1]) if len(sys.argv) > 1 else 42069
 agc.name = f'{os.path.splitext(os.path.basename(__file__))[0]}_{os.getpid()}'
 agc.setCallback(onDeliver, "antDeliver")
 agc.setCallback(onGrab, "antGrab")
