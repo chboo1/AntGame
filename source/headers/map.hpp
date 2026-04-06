@@ -187,10 +187,10 @@ class Ant
     };
 
     static const constexpr AntType antTypes[] = {
-        {1.0, 0.1, 5.0, 5.0, 10.0, 3.0, 10.0}, // 0 -> BASE
-        {2.0, 0.1, 5.0, 2.5, 10.0, 3.0, 10.0}, // 1 -> GLASS CANON
-        {0.5, 0.1, 5.0, 10.0, 10.0, 3.0, 10.0}, // 2 -> TANK
-        {1.0, 0.1, 5.0, 1.0, 20.0, 5, 10.0} // 3 -> PEASANT
+        {1.0, 0.1, 5.0, 5.0, 10.0, 3.0, 10.0},   // 0 -> BASE (balanced all-rounder)
+        {3.0, 0.1, 5.0, 2.0, 14.0, 2.0, 14.0},    // 1 -> GLASS CANON (assassin: 3x dmg, fast, long range, fragile)
+        {0.75, 0.1, 5.0, 15.0, 8.0, 5.0, 8.0},    // 2 -> TANK (frontline: 3x HP, decent hauler, slow)
+        {1.0, 0.1, 5.0, 1.0, 20.0, 5.0, 10.0}     // 3 -> PEASANT (pure economy: fast, high capacity, 1 HP)
     };
 
     static const unsigned char antTypec = 4;
