@@ -184,13 +184,14 @@ class Ant
         double speed; // tiles/second
         double capacity; // food (seconds)
         double range; // tiles
+        unsigned char specialBehaviourID; // describes special behaviours. 0 means none.
     };
 
     static const constexpr AntType antTypes[] = {
-        {1.0, 0.1, 5.0, 5.0, 10.0, 3.0, 10.0}, // 0 -> BASE
-        {2.0, 0.1, 5.0, 2.5, 10.0, 3.0, 10.0}, // 1 -> GLASS CANON
-        {0.5, 0.1, 5.0, 10.0, 10.0, 3.0, 10.0}, // 2 -> TANK
-        {1.0, 0.1, 5.0, 1.0, 20.0, 5, 10.0} // 3 -> PEASANT
+        {1.0, 0.1, 5.0, 5.0, 10.0, 3.0, 10.0, 0}, // 0 -> BASE
+        {2.0, 0.1, 5.0, 2.5, 10.0, 3.0, 10.0, 0}, // 1 -> GLASS CANON
+        {0.5, 0.1, 5.0, 10.0, 10.0, 3.0, 10.0, 0}, // 2 -> TANK
+        {1.0, 0.1, 5.0, 1.0, 20.0, 5, 10.0, 0} // 3 -> PEASANT
     };
 
     static const unsigned char antTypec = 4;

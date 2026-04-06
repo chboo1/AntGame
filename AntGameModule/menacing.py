@@ -43,7 +43,11 @@ def onDeliver(ma: Ant):
 
 def onGrab(ma: Ant):
     if not ma.isFull:
-        ma.goTake(ma.nearestFreeFood())
+        food = ma.nearestFreeFood()
+        if food is None:
+            ma.followAttack(ma.nearestEnemy())
+        else:
+            ma.goTake(ma.nearestFreeFood())
     else:
         ma.goDeliver()
 
