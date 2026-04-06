@@ -71,6 +71,7 @@ class Round
     double deltaTime;
     bool logging = false;
     bool statsKeeping = false;
+    std::string gameName = "AntGame!";
     std::vector<NestStats> deadNestStats;
     volatile static std::sig_atomic_t signalFlag;
 #ifdef ERROR

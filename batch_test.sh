@@ -14,7 +14,7 @@ rm -f logs/*_debug_*.log
 RESULTS=""
 for i in 1 2 3; do
     echo "=== RUN $i ==="
-    ./game.sh $ALGOS
+    ./game.sh -n "Run $i" $ALGOS
     sleep 3
     # Find only non-renamed logs (no _run in name) to avoid picking up old renamed files
     LOGS=$(ls -t logs/*_debug_*.log 2>/dev/null | grep -v '_run' || true)
