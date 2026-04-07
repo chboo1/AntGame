@@ -87,7 +87,7 @@ def nextFood(ant: Ant):
 
 def onStart():
     global flagDict
-    log("v25b: surgical priority targeting (onWait/onHurt only), combat-only all-in")
+    log("v25d: remove dead onHit, add defense disengage leash")
     log(f"START: nest=({agc.me.pos.x:.0f},{agc.me.pos.y:.0f})")
     for ant in agc.me.ants:
         ant.goTake(agc.nearestFreeFood())
@@ -138,11 +138,13 @@ def onFrame():
             flagDict[ant.id] = {"attacking": False}
         if not flagDict[ant.id]["attacking"]:
             enemy = ant.nearestEnemy()
-            if enemy is not None:
-                dr = defenseRange(ant)
-                if ant.pos.dist(enemy.pos) < dr:
-                    if ant.target != enemy:
-                        ant.followAttack(enemy)
+            dr = defenseRange(ant)
+            if enemy is not None and ant.pos.dist(enemy.pos) < dr:
+                if ant.target != enemy:
+                    ant.followAttack(enemy)
+            elif ant.target is not None:
+                # Enemy moved beyond defense range — disengage and resume gathering
+                nextFood(ant)
 
     # Logging
     if frameCount % 50 == 0:
@@ -231,16 +233,6 @@ def onHurt(ant: Ant):
         ant.followAttack(target)
 
 
-def onHit(ant: Ant):
-    if flagDict.get(ant.id) and not flagDict[ant.id]["attacking"]:
-        enemy = ant.nearestEnemy()
-        dr = defenseRange(ant)
-        if enemy is None or ant.pos.dist(enemy.pos) > dr:
-            ant.goDeliver()
-        else:
-            ant.followAttack(enemy)
-
-
 agc.port = int(sys.argv[1]) if len(sys.argv) > 1 else 42069
 agc.name = f'{AI_NAME}_{os.getpid()}'
 agc.setCallback(onStart, "gameStart")
@@ -250,6 +242,5 @@ agc.setCallback(onDeliver, "antDeliver")
 agc.setCallback(onGrab, "antGrab")
 agc.setCallback(onNewAnt, "antNew")
 agc.setCallback(onHurt, "antHurt")
-agc.setCallback(onHit, "antHit")
 agc.setCallback(onDeath, "antDeath")
 agc.connect()
