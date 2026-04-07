@@ -128,6 +128,7 @@ struct AntGameClientObject
         std::deque<unsigned int> gaps;
         std::deque<std::uint64_t> currents;
         std::deque<unsigned short> counts;
+        std::deque<Pos> missingFood;
     } nearestFoodData;
 };
 
@@ -1745,10 +1746,23 @@ static PyObject* Nest_getfood(PyObject* op, void* closure)
 static PyObject* Nest_getants(PyObject* op, void *closure);
 
 
+static PyObject* Nest_getid(PyObject*op, void*closure)
+{
+    NestObject*self = (NestObject*)op;
+    if (!self->root || self->nestID == 0xff)
+    {
+        PyErr_SetString(PyExc_RuntimeError, "This nest does not exist! It does not have an ID.");
+        return nullptr;
+    }
+    return PyLong_FromUnsignedLong((unsigned long)self->nestID);
+}
+
+
 static PyGetSetDef Nest_getsetters[] = {
     {"ants", Nest_getants, nullptr, "nest's ants", nullptr},
     {"pos", Nest_getpos, nullptr, "position", nullptr},
     {"food", Nest_getfood, nullptr, "food amount", nullptr},
+    {"id", Nest_getid, nullptr, "unique identifier", nullptr},
     {nullptr}
 };
 
@@ -2447,6 +2461,23 @@ static bool Ant_attackable(AntObject*self, AntObject* target, bool far)
 }
 
 
+static void Ant_clearCmd(AntGameClientObject* root, Ant* self)
+{
+    for (Ant::AntCommand acmd : self->commands)
+    {
+        if (acmd.cmd == Ant::AntCommand::ID::TINTERACT)
+        {
+            Pos t = {(unsigned short)(acmd.arg >> 16), (unsigned short)(acmd.arg & 0xffff)};
+            if (sqrt(t.x*t.x+t.y*t.y) < root->nearestFoodData.count + 3)
+            {
+                root->nearestFoodData.missingFood.push_back(t);
+            }
+        }
+    }
+    self->commands.clear();
+}
+
+
 static bool Ant_sendGoto(AntObject*self, DPos t) // TODO this will be the pathing alg
 {
     Ant* a = self->root->map->antPermanents[self->antID];
@@ -2469,7 +2500,7 @@ static bool Ant_sendGoto(AntObject*self, DPos t) // TODO this will be the pathin
         self->root->cmdIDs.push_back(ConnectionManager::RequestID::WALK);
         self->root->cmdpids.push_back(self->antID);
         self->root->cmdargs.push_back(((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.y));
-        a->commands.clear();
+        Ant_clearCmd(self->root, a);
         Ant::AntCommand acmd;
         acmd.cmd = Ant::AntCommand::ID::MOVE;
         acmd.state = Ant::AntCommand::State::ONGOING;
@@ -2575,7 +2606,7 @@ static bool Ant_sendFollow(AntObject*self, DPos t, AntObject*target) // TODO thi
         self->root->cmdIDs.push_back(ConnectionManager::RequestID::WALK);
         self->root->cmdpids.push_back(self->antID);
         self->root->cmdargs.push_back(((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.y));
-        a->commands.clear();
+        Ant_clearCmd(self->root, a);
         Ant::AntCommand acmd;
         acmd.cmd = Ant::AntCommand::ID::FOLLOW;
         acmd.state = Ant::AntCommand::State::ONGOING;
@@ -2629,7 +2660,7 @@ static bool AntGameClient_continueFollow(AntGameClientObject* agc, unsigned int 
     agc->cmdIDs.push_back(ConnectionManager::RequestID::WALK);
     agc->cmdpids.push_back(self);
     agc->cmdargs.push_back(((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t->p.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t->p.y));
-    a->commands.clear();
+    Ant_clearCmd(agc, a);
     Ant::AntCommand acmd;
     acmd.cmd = Ant::AntCommand::ID::FOLLOW;
     acmd.state = Ant::AntCommand::State::ONGOING;
@@ -2663,7 +2694,7 @@ static bool AntGameClient_continueFollowAttack(AntGameClientObject* agc, unsigne
     agc->cmdIDs.push_back(ConnectionManager::RequestID::WALK);
     agc->cmdpids.push_back(self);
     agc->cmdargs.push_back(((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t->p.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t->p.y));
-    a->commands.clear();
+    Ant_clearCmd(agc, a);
     Ant::AntCommand acmd;
     acmd.cmd = Ant::AntCommand::ID::CFOLLOW;
     acmd.state = Ant::AntCommand::State::ONGOING;
@@ -2704,7 +2735,7 @@ static bool Ant_sendFollowAttack(AntObject*self, DPos t, AntObject*target) // TO
         self->root->cmdIDs.push_back(ConnectionManager::RequestID::WALK);
         self->root->cmdpids.push_back(self->antID);
         self->root->cmdargs.push_back(((std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.x)<<32)+(std::uint64_t)ConnectionManager::makeAGNPshortdouble(t.y));
-        a->commands.clear();
+        Ant_clearCmd(self->root, a);
         Ant::AntCommand acmd;
         acmd.cmd = Ant::AntCommand::ID::CFOLLOW;
         acmd.state = Ant::AntCommand::State::ONGOING;
@@ -3093,7 +3124,7 @@ static PyObject* Ant_stop(PyObject* op, PyObject* args)
         return nullptr;
     }
     self->root->reqIDs.push_back(ConnectionManager::RequestID::CANCEL);
-    self->root->map->antPermanents[self->antID]->commands.clear();
+    Ant_clearCmd(self->root, self->root->map->antPermanents[self->antID]);
     Py_RETURN_NONE;
 }
 
@@ -4104,6 +4135,15 @@ static Pos AntGameClient_findNearestFood(AntGameClientObject* self, Pos center, 
     counts.push_back(2);
     if (center == self->map->nests[self->selfNestID]->p)
     {
+        for (;!self->nearestFoodData.missingFood.empty();)
+        {
+            Pos pp = self->nearestFoodData.missingFood.front();
+            self->nearestFoodData.missingFood.pop_front();
+            if (checker(self, pp))
+            {
+                return pp;
+            }
+        }
         gap = self->nearestFoodData.gap;
         current = self->nearestFoodData.current;
         count = self->nearestFoodData.count;

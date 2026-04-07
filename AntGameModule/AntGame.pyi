@@ -103,6 +103,11 @@ class Nest:
         """The nest's food."""
         pass
 
+    @property
+    def id(self) -> int:
+        """A universally unique and constant identifier for this nest. Use it to refer to this nest in a constant manner."""
+        pass
+
 
 class Ant:
     """An ant within the map."""
@@ -164,6 +169,11 @@ class Ant:
     @property
     def isSafe(self) -> bool:
         """Of a frozen ant, whether or not it is safe to call unfreeze on it (i.e., if the ant that was frozen still exists.) Of a non-frozen ant, same as isAlive."""
+        pass
+
+    @property
+    def id(self) -> int:
+        """A universally unique and constant identifier for this ant. Use it to refer to this ant in an invariable way."""
         pass
 
 
