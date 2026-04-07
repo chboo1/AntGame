@@ -135,7 +135,7 @@ def onHit(ma: Ant):
     if not flagDict[ma.id]["attacking"]:
         if ma.nearestEnemy() is None:
             ma.goDeliver()
-        elif ma.pos.dist(ma.nearestEnemy().pos) > AntTypes.DEFAULT_ANT.value.attackRange * 3:
+        elif ma.pos.dist(ma.nearestEnemy().pos) > AntTypes.DEFAULT_ANT.value.attackrange * 3:
             ma.goDeliver()
         else:
             ma.followAttack(ma.nearestEnemy())
