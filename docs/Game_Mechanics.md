@@ -2,7 +2,8 @@
 
 ## Inferred Game Mechanics (from C++ server source)
 - Map: 500×500 (smallMap), nests at corners, ~18,990 food tiles (never respawn)
-- Config: timeScale=4 (was 8), startingFood=60, hungerRate=1, foodYield=1, foodTheftYield=3, all other mods=1
+- Config: timeScale=4 (was 8), startingFood=60, foodYield=1, foodTheftYield=3, all other mods=1
+- `hungerRate` is parsed from config but never applied — food drain is simply `foodCount -= delta` with no multiplier
 - Food drain: foodCount -= delta each frame (delta = realtime_elapsed × timeScale). ~4 food/real-sec at timeScale=4
 - Nest death: foodCount <= 0 → nest eliminated, rank = remaining_nests - dead_nests
 - Max ants: 255 (hard cap in server: ants.size() >= 255 blocks newAnt)
@@ -39,18 +40,18 @@
 - `antGrab`: called when ant picks up food tile
 - `antNew`: called when new ant created
 - `antHurt`: called when ant takes damage
-- `antHit`: called when ant deals damage
+- `antHit`: **DEAD CALLBACK** — `hitAnts` deque is populated when AINTERACT succeeds on an enemy, but the callback loop was never implemented. Registering this does nothing
 - `antDeath`: called when ant dies. Ant is frozen snapshot; do NOT send commands
-- `antFull`: **NEVER USE** — causes C++ malloc double-free crash (Abort trap: 6)
+- `antFull`: called when ant reaches max carry capacity. Same code path as `antGrab`/`antDeliver` — no crash evident in current source
 
 ## API Gotchas
-- `nearestEnemy()` returns None when no enemies visible, not when no enemies exist
-- `nearestFreeFood()` returns food no friendly ant is targeting
-- `ant.target`: the ant being followed/attacked — can compare to avoid re-issuing commands
-- Dead ants in `antDeath` are frozen. Never send commands to them
-- `flagDict.get(ant.id)` needed — ants can exist before `onNewAnt` callback
-- `followAttack`: move toward enemy + attack when in range. Best chase command
-- Ants can `take(enemy_nest_pos)` to steal 3 food per take action (foodTheftYield)
+- `nearestEnemy()` returns None only when no enemy ants exist on the map — there is no range/visibility limit (scans all ants globally)
+- `nearestFreeFood()` returns the nearest food tile that no **friendly** ant (same nest only) has a pending `take` command on. Returns None when no unclaimed food exists
+- `ant.target`: returns the ant referenced by a FOLLOW, CFOLLOW, or AINTERACT command — i.e., the ant being chased or attacked. Returns None if no such command exists or target is dead
+- Dead ants in `antDeath` are stack copies (not live pointers). All command functions early-return on dead ants — sending commands is a no-op with a warning
+- `flagDict.get(ant.id)` needed — callback order is: onFrame → onNewAnt → onHurt → onGrab → onDeliver → onFull → onWait → onDeath. Ants created last frame exist in `agc.me.ants` during onFrame but haven't had onNewAnt called yet
+- `followAttack(ant)`: sends WALK to target's position + AINTERACT (attack). Auto-re-issued each frame by the client to chase. No range limit for issuing — will chase across entire map. `followAttack(None)` silently returns None (no-op)
+- Food theft at enemy nests: Python-side `take`/`goTake` rejects the command unless ant has room for full `foodTheftYield` (3). Server-side uses `min(foodTheftYield, capacity - foodCarry)` but this never activates under normal conditions. Ant must walk to nest tile and use `take`/`goTake`
 - Building ants in `onFrame` drains food too aggressively (builds every frame vs only when food arrives in `onDeliver`)
 - Re-targeting the same ant in `onWait` every frame can trap ALL ants in permanent combat with no economy
 
