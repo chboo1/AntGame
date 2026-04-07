@@ -130,7 +130,6 @@ def onHurt(ma: Ant):
 
 
 def onHit(ma: Ant):
-    print("onHit")
     global flagDict
     if not flagDict[ma.id]["attacking"]:
         if ma.nearestEnemy() is None:

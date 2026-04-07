@@ -27,16 +27,16 @@ speedyCount = 0
 glassCount = 0
 tankCount = 0
 flagDict = {}
-frameCount = 0
+elapsedTime = 0.0
 totalBuilt = 0
 totalDeaths = 0
 allInActive = False
-highAntFrames = 0  # frames with 200+ ants (for timeout trigger)
+highAntTime = 0.0  # game-seconds with 150+ ants (for timeout trigger)
 peakAnts = 5
 
 
 def log(msg):
-    LOGFILE.write(f"[F{frameCount}] {msg}\n")
+    LOGFILE.write(f"[T{elapsedTime:.2f}] {msg}\n")
     LOGFILE.flush()
 
 
@@ -87,7 +87,7 @@ def nextFood(ant: Ant):
 
 def onStart():
     global flagDict
-    log("v25d: remove dead onHit, add defense disengage leash")
+    log("v26: delta-based timing, onHit callback, food theft fix")
     log(f"START: nest=({agc.me.pos.x:.0f},{agc.me.pos.y:.0f})")
     for ant in agc.me.ants:
         ant.goTake(agc.nearestFreeFood())
@@ -95,9 +95,10 @@ def onStart():
 
 
 def onFrame():
-    global flagDict, frameCount, allInActive
-    global highAntFrames, peakAnts
-    frameCount += 1
+    global flagDict, elapsedTime, allInActive
+    global highAntTime, peakAnts
+    dt = agc.delta
+    elapsedTime += dt
 
     numAnts = len(agc.me.ants)
     numEnemies = len(agc.enemies)
@@ -107,16 +108,16 @@ def onFrame():
 
     # Track time at high ant count (for timeout)
     if numAnts >= 150 and numEnemies > 0:
-        highAntFrames += 1
+        highAntTime += dt
 
-    # All-in trigger: 180+ ants (no food gate ),
-    # OR timeout after 600 frames at 150+ ants
+    # All-in trigger: 180+ ants,
+    # OR timeout after ~150 game-seconds at 150+ ants
     normalTrigger = (numAnts >= 180 and numEnemies > 0)
-    timeoutTrigger = (highAntFrames >= 600 and numAnts >= 150 and numEnemies > 0)
+    timeoutTrigger = (highAntTime >= 150.0 and numAnts >= 150 and numEnemies > 0)
     if not allInActive and (normalTrigger or timeoutTrigger):
         allInActive = True
         reason = "TIMEOUT" if timeoutTrigger and not normalTrigger else "THRESHOLD"
-        log(f"ALL-IN ACTIVATED ({reason}): ants={numAnts} food={agc.me.food:.1f} enemies={numEnemies} highAntFrames={highAntFrames} peak={peakAnts}")
+        log(f"ALL-IN ACTIVATED ({reason}): ants={numAnts} food={agc.me.food:.1f} enemies={numEnemies} highAntTime={highAntTime:.1f}s peak={peakAnts}")
 
     if allInActive:
         for ant in agc.me.ants:
@@ -146,10 +147,10 @@ def onFrame():
                 # Enemy moved beyond defense range — disengage and resume gathering
                 nextFood(ant)
 
-    # Logging
-    if frameCount % 50 == 0:
+    # Logging (every ~12.5 game-seconds)
+    if int(elapsedTime / 12.5) != int((elapsedTime - dt) / 12.5):
         mode = "ALLIN" if allInActive else "gather"
-        log(f"STATUS: food={agc.me.food:.1f} ants={numAnts}(p{speedyCount}/d{defaultCount}/g{glassCount}/t{tankCount}) enemies={numEnemies} built={totalBuilt} deaths={totalDeaths} mode={mode} peak={peakAnts} highFrames={highAntFrames}")
+        log(f"STATUS: food={agc.me.food:.1f} ants={numAnts}(p{speedyCount}/d{defaultCount}/g{glassCount}/t{tankCount}) enemies={numEnemies} built={totalBuilt} deaths={totalDeaths} mode={mode} peak={peakAnts} highTime={highAntTime:.1f}s elapsed={elapsedTime:.1f}s")
 
     if agc.me.food < 15:
         log(f"LOW FOOD: {agc.me.food:.1f} (ants={numAnts}, built={totalBuilt})")
@@ -233,6 +234,13 @@ def onHurt(ant: Ant):
         ant.followAttack(target)
 
 
+def onHit(ant: Ant):
+    """Called when our ant's attack lands. Re-acquire best target (finish wounded, pick peasants)."""
+    target = findPriorityTarget(ant)
+    if target is not None:
+        ant.followAttack(target)
+
+
 agc.port = int(sys.argv[1]) if len(sys.argv) > 1 else 42069
 agc.name = f'{AI_NAME}_{os.getpid()}'
 agc.setCallback(onStart, "gameStart")
@@ -242,5 +250,6 @@ agc.setCallback(onDeliver, "antDeliver")
 agc.setCallback(onGrab, "antGrab")
 agc.setCallback(onNewAnt, "antNew")
 agc.setCallback(onHurt, "antHurt")
+agc.setCallback(onHit, "antHit")
 agc.setCallback(onDeath, "antDeath")
 agc.connect()
