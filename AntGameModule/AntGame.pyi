@@ -35,6 +35,8 @@ class AntGameClient:
         pass
     port:int = 55521
     """The port through which we should aim to connect to the server."""
+    delta:float = 0.0
+    """Game-time elapsed since last frame (seconds × timeScale). Set before frame callbacks run."""
     @property
     def name(self) -> str:
         """The name of this bot."""
