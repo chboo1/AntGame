@@ -91,6 +91,7 @@ struct AntGameClientObject
     std::string recvData = "";
 
     Map*map = nullptr;
+    double delta = 0;
     Connection*conn = nullptr;
 
     unsigned char selfNestID = 0xff;
@@ -331,6 +332,7 @@ static PyGetSetDef AntGameClient_getsetters[] = {
 
 static PyMemberDef AntGameClient_members[] = {
     {"port", Py_T_INT, offsetof(AntGameClientObject, port), 0, "remote port"},
+    {"delta", Py_T_DOUBLE, offsetof(AntGameClientObject, delta), 0, "time since last frame"},
     {nullptr}
 };
 
@@ -531,10 +533,7 @@ static bool AntGameClient_frame(AntGameClientObject*self)
         }
     }
     auto now = std::chrono::steady_clock::now();
-    if (!AntGameClient_callGameCallback(self->onFrame))
-    {
-        return false;
-    }
+    // order: antNew antDead gameFrame antHit antHurt antFull antGrab antDeliver antWait
     for (unsigned int pid : self->newAnts)
     {
         if (pid < self->map->antPermanents.size() && self->map->antPermanents[pid] && self->map->antPermanents[pid]->parent == self->map->nests[self->selfNestID])
@@ -546,6 +545,29 @@ static bool AntGameClient_frame(AntGameClientObject*self)
         }
     }
     self->newAnts.clear();
+    for (Ant a : self->deadAnts)
+    {
+        if (!AntGameClient_callAntCallback(self, self->onDeath, &a))
+        {
+            return false;
+        }
+    }
+    self->deadAnts.clear();
+    if (!AntGameClient_callGameCallback(self->onFrame))
+    {
+        return false;
+    }
+    for (unsigned int pid : self->hitAnts)
+    {
+        if (pid < self->map->antPermanents.size() && self->map->antPermanents[pid] && self->map->antPermanents[pid]->parent == self->map->nests[self->selfNestID])
+        {
+            if (!AntGameClient_callAntCallback(self, self->onHit, self->map->antPermanents[pid]))
+            {
+                return false;
+            }
+        }
+    }
+    self->hitAnts.clear();
     for (unsigned int pid : self->hurtAnts)
     {
         if (pid < self->map->antPermanents.size() && self->map->antPermanents[pid] && self->map->antPermanents[pid]->parent == self->map->nests[self->selfNestID])
@@ -557,6 +579,17 @@ static bool AntGameClient_frame(AntGameClientObject*self)
         }
     }
     self->hurtAnts.clear();
+    for (unsigned int pid : self->fullAnts)
+    {
+        if (pid < self->map->antPermanents.size() && self->map->antPermanents[pid] && self->map->antPermanents[pid]->parent == self->map->nests[self->selfNestID])
+        {
+            if (!AntGameClient_callAntCallback(self, self->onFull, self->map->antPermanents[pid]))
+            {
+                return false;
+            }
+        }
+    }
+    self->fullAnts.clear();
     for (unsigned int pid : self->grabAnts)
     {
         if (pid < self->map->antPermanents.size() && self->map->antPermanents[pid] && self->map->antPermanents[pid]->parent == self->map->nests[self->selfNestID])
@@ -579,17 +612,6 @@ static bool AntGameClient_frame(AntGameClientObject*self)
         }
     }
     self->deliverAnts.clear();
-    for (unsigned int pid : self->fullAnts)
-    {
-        if (pid < self->map->antPermanents.size() && self->map->antPermanents[pid] && self->map->antPermanents[pid]->parent == self->map->nests[self->selfNestID])
-        {
-            if (!AntGameClient_callAntCallback(self, self->onFull, self->map->antPermanents[pid]))
-            {
-                return false;
-            }
-        }
-    }
-    self->fullAnts.clear();
     for (Ant*a:self->map->nests[self->selfNestID]->ants)
     {
         if (a->commands.empty())
@@ -600,14 +622,6 @@ static bool AntGameClient_frame(AntGameClientObject*self)
             }
         }
     }
-    for (Ant a : self->deadAnts)
-    {
-        if (!AntGameClient_callAntCallback(self, self->onDeath, &a))
-        {
-            return false;
-        }
-    }
-    self->deadAnts.clear();
     now = std::chrono::steady_clock::now();
     return true;
 }
@@ -1060,12 +1074,12 @@ static bool AntGameClient_running(AntGameClientObject* self)
             {
                 triggerFrame = false;
                 auto now = std::chrono::steady_clock::now();
+                self->delta = std::chrono::duration<double>(now - self->lastFrame).count() * RoundSettings::instance->timeScale;
+                self->lastFrame = now;
                 if (!AntGameClient_frame(self))
                 {
                     return false;
                 }
-                now = std::chrono::steady_clock::now();
-                self->lastFrame = now;
             }
         }
     }
@@ -2404,12 +2418,12 @@ static bool Ant_edible(AntObject* self, PosObject* target, bool far)
     }
     if (self->root->map->tileEdible(t))
     {
-        if (Ant::antTypes[a->type].capacity * RoundSettings::instance->capacityMod < a->foodCarry + RoundSettings::instance->foodYield)
+        if (Ant::antTypes[a->type].capacity * RoundSettings::instance->capacityMod <= a->foodCarry)
         {
             return false;
         }
     }
-    else if ((*self->root->map)[t] != Map::Tile::NEST || self->root->map->nests[self->root->selfNestID]->p == t || Ant::antTypes[a->type].capacity * RoundSettings::instance->capacityMod < a->foodCarry + RoundSettings::instance->foodTheftYield)
+    else if ((*self->root->map)[t] != Map::Tile::NEST || self->root->map->nests[self->root->selfNestID]->p == t || Ant::antTypes[a->type].capacity * RoundSettings::instance->capacityMod <= a->foodCarry)
     {
         return false;
     }

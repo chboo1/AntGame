@@ -753,7 +753,7 @@ void Nest::init(Map* nparent, Pos npos, int antc) // Takes a parent ptr, a posit
 
 void Nest::step(double delta)
 {
-    foodCount -= delta;
+    foodCount -= delta * RoundSettings::instance->hungerRate;
     for (NestCommand& cmd : commands)
     {
         if (cmd.state != NestCommand::State::ONGOING) {continue;}
