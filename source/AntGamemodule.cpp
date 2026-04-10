@@ -1076,6 +1076,7 @@ static bool AntGameClient_running(AntGameClientObject* self)
                 triggerFrame = false;
                 auto now = std::chrono::steady_clock::now();
                 self->delta = std::chrono::duration<double>(now - self->lastFrame).count() * RoundSettings::instance->timeScale;
+                //std::cout << 1 / self->delta << std::endl;
                 self->lastFrame = now;
                 if (!AntGameClient_frame(self))
                 {
@@ -1663,12 +1664,18 @@ static PyObject* AntGameClient_nearestUnclaimedFood(PyObject* op, PyObject* args
 }
 
 
+static PyObject* AntGameClient_getAnt(PyObject* op, PyObject* args);
+static PyObject* AntGameClient_getNest(PyObject* op, PyObject* args);
+
+
 static PyMethodDef AntGameClient_methods[] = {
     {"connect", (PyCFunction)(void(*)(void))AntGameClient_start, METH_VARARGS | METH_KEYWORDS, "Connect to a server and start running."},
     {"setCallback", AntGameClient_setCallback, METH_VARARGS, "Set a callback function."},
     {"newAnt", AntGameClient_newAnt, METH_VARARGS, "Create a new ant."},
     {"nearestFood", AntGameClient_nearestFood, METH_NOARGS, "Find closest food to nest."},
     {"nearestFreeFood", AntGameClient_nearestUnclaimedFood, METH_NOARGS, "Find closest food to nest that is not targeted by another ant."},
+    {"getAnt", AntGameClient_getAnt, METH_VARARGS, "Get an ant from an ID, or None, if that ant does not exist"},
+    {"getNest", AntGameClient_getNest, METH_VARARGS, "Get a nest from an ID, or None, if that nest does not exist"},
     {nullptr, nullptr, 0, nullptr}
 };
 
@@ -1926,6 +1933,7 @@ static PyObject* AntType_getattackcooldown(PyObject*op, void*closure)
 
 static PyGetSetDef AntType_getsetters[] = {
     {"maxfood", AntType_getmaxfood, nullptr, "ant type's maximum food", nullptr},
+    {"capacity", AntType_getmaxfood, nullptr, "ant type's maximum food", nullptr},
     {"maxhealth", AntType_getmaxhealth, nullptr, "ant type's maximum health", nullptr},
     {"damage", AntType_getdamage, nullptr, "ant type's damage", nullptr},
     {"cost", AntType_getcost, nullptr, "ant type's cost", nullptr},
@@ -3352,6 +3360,69 @@ static PyTypeObject AntType = {
     .tp_getset = Ant_getsetters,
     .tp_new = PyType_GenericNew,
 };
+
+
+static PyObject* AntGameClient_getAnt(PyObject* op, PyObject* args)
+{
+    AntGameClientObject* self = (AntGameClientObject*)op;
+    if (!self->map)
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot get an ant from an ID if the game is not started!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    unsigned int antID = 0;
+    if (!PyArg_ParseTuple(args, "I", &antID))
+    {
+        return nullptr;
+    }
+    if (self->map->antPermanents.size() <= antID || self->map->antPermanents[antID] == nullptr)
+    {
+        Py_RETURN_NONE;
+    }
+    AntObject*antobj = (AntObject*)AntType.tp_alloc(&AntType, 0);
+    if (antobj)
+    {
+        antobj->echo.type = 0xff;
+        antobj->antID = antID;
+        antobj->root = self;
+    }
+    Py_XINCREF(antobj);
+    return (PyObject*)antobj;
+}
+
+
+static PyObject* AntGameClient_getNest(PyObject* op, PyObject* args)
+{
+    AntGameClientObject* self = (AntGameClientObject*)op;
+    if (!self->map)
+    {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, "Cannot get an ant from an ID if the game is not started!", 2) < 0)
+        {
+            return nullptr;
+        }
+        Py_RETURN_NONE;
+    }
+    unsigned char nestID = 0;
+    if (!PyArg_ParseTuple(args, "b", &nestID))
+    {
+        return nullptr;
+    }
+    if (self->map->nests.size() <= nestID || self->map->nests[nestID] == nullptr)
+    {
+        Py_RETURN_NONE;
+    }
+    NestObject*nestobj = (NestObject*)NestType.tp_alloc(&NestType, 0);
+    if (nestobj)
+    {
+        nestobj->nestID = nestID;
+        nestobj->root = self;
+    }
+    Py_XINCREF(nestobj);
+    return (PyObject*)nestobj;
+}
 
 
 static PyObject* Ant_gettarget(PyObject* op, void*closure)

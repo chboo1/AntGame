@@ -46,6 +46,14 @@ class AntGameClient:
         """The size of the map."""
         pass
 
+    def getNest(self, id) -> Nest:
+       """Get a nest from a nest ID. Returns None if this nest is dead or the ID is invalid."""
+       pass
+
+    def getAnt(self, id) -> Ant:
+        """Get an ant from an ant ID. Returns None if this ant is dead or if the ID is invalid."""
+        pass
+
 
     def connect(self) -> None:
 
@@ -272,7 +280,12 @@ class AntType:
 
     @property
     def maxfood(self) -> float:
-        """The max carried food of this ant type."""
+        """The max carried food of this ant type. Same as capacity."""
+        pass
+
+    @property
+    def capacity(self) -> float:
+        """The max carried food of this ant type. Same as maxfood."""
         pass
 
     @property
