@@ -1,4 +1,6 @@
 LIBRARIES := $(wildcard source/lib/*.cpp)
+normal: bin/AntGameServer bin/tests res bin/dummyClient
+
 all: bin/AntGameServer bin/tests res bin/dummyClient module
 
 

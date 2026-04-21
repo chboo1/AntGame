@@ -11,9 +11,15 @@
 #include <climits>
 
 
+#ifndef PYTHON_COMP 
 #include "headers/sockets.hpp"
 #include "headers/network.hpp"
 #include "headers/map.hpp"
+#else
+#include "network.hpp"
+#include "sockets.hpp"
+#include "map.hpp"
+#endif
 
 #ifdef far // I have no fucking idea what moron defined a macro this simple, but I have to undef it on windows
 #undef far
@@ -411,6 +417,7 @@ static void AntGameClient_cleanup(AntGameClientObject* self)
     if (RoundSettings::instance)
     {
         delete RoundSettings::instance;
+        RoundSettings::instance = nullptr;
     }
     self->reqIDs.clear();
     self->cmdIDs.clear();
@@ -738,7 +745,6 @@ static bool AntGameClient_running(AntGameClientObject* self)
                                 break;
                             case ConnectionManager::ResponseID::CMDFAIL:
                             case ConnectionManager::ResponseID::CMDSUCCESS:{
-                                auto tempStart = std::chrono::high_resolution_clock::now();
                                 if (responsesLen - dataIndex < 1)
                                 {
                                     PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in CMDSUCCESS/FAIL (no space). Is this a modified server?");
@@ -813,7 +819,6 @@ static bool AntGameClient_running(AntGameClientObject* self)
                                         }
                                     }
                                 }
-                                auto tempDatC = std::chrono::high_resolution_clock::now();
                                 auto IDit = self->cmdIDs.begin();
                                 auto pidit = self->cmdpids.begin();
                                 auto argit = self->cmdargs.begin();
@@ -831,7 +836,6 @@ static bool AntGameClient_running(AntGameClientObject* self)
                                     pidit++;
                                     argit++;
                                 }
-                                auto tempCheck = std::chrono::high_resolution_clock::now();
                                 if (!valid)
                                 {
                                     PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol in CMDSUCCESS/FAIL (invalid previous req data). Is this a modified server?");
@@ -853,7 +857,6 @@ static bool AntGameClient_running(AntGameClientObject* self)
                                         self->hitAnts.push_back(antPid);
                                     }
                                 }
-                                auto tempEnd = std::chrono::high_resolution_clock::now();
                                 break;}
                             default:
                                 PyErr_SetString(PyExc_RuntimeError, "Server responded but did not use the correct protocol (invalid unsolicited response). Is this a modified server?");
@@ -3028,7 +3031,6 @@ static PyObject* Ant_goTake(PyObject* op, PyObject* args)
             Py_RETURN_NONE;
         }
         Pos t = posobj->p;
-        bool found = false;
         if (!Ant_sendGoto(self, p))
         {
             return nullptr;
@@ -3844,6 +3846,7 @@ static PyObject* AntGameClient_getnests(PyObject* op, void *closure)
         PyErr_SetString(PyExc_MemoryError, "Failed to get memory for the list of nests!");
         return nullptr;
     }
+    int j = 0;
     for (int i = 0; i < self->map->nests.size() && i < 256; i++)
     {
         if (!self->map->nests[i]) {continue;}
@@ -3857,7 +3860,8 @@ static PyObject* AntGameClient_getnests(PyObject* op, void *closure)
         item->root = self;
         item->nestID = i;
         Py_INCREF(item);
-        PyList_SetItem(ret, i, (PyObject*)item);
+        PyList_SetItem(ret, j, (PyObject*)item);
+        j++;
     }
     return ret;
 }
