@@ -140,6 +140,12 @@ DPos DPos::operator-(DPos o)
 }
 
 
+double DPos::sqrmagnitude()
+{
+    return x*x + y*y;
+}
+
+
 double DPos::magnitude()
 {
     return sqrt(x*x + y*y);

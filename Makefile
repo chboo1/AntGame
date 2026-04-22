@@ -39,17 +39,17 @@ endif
 
 
 ifeq ($(OS), Windows_NT)
-module: out/*.o AntGameModule/AntGame.pyd
+module: out/*.o PyCode/AntGame.pyd
 
-AntGameModule/AntGame.pyd: source/AntGamemodule.cpp
-	g++ -std=c++17 -fpic -c source\\AntGameModule.cpp -IAntGameModule\\include -o AntGameModule\\AntGamemodule.o
-	g++ -std=c++17 -fpic -shared AntGameModule\\AntGamemodule.o out\\*.o -lws2_32 -o AntGameModule\\AntGame.pyd -LAntGameModule\\libs -lpython314
+PyCode/AntGame.pyd: source/AntGamemodule.cpp
+	g++ -std=c++17 -fpic -c source\\AntGamemodule.cpp -IPyCode\\include -o PyCode\\AntGamemodule.o
+	g++ -std=c++17 -fpic -shared PyCode\\AntGamemodule.o out\\*.o -lws2_32 -o PyCode\\AntGame.pyd -LPyCode\\libs -lpython314
 else
-module: out/*.o AntGameModule/AntGame.so
+module: out/*.o PyCode/AntGame.so
 
-AntGameModule/AntGame.so: source/AntGamemodule.cpp
-	g++ -std=c++17 -fpic -c source/AntGameModule.cpp -IAntGameModule/include -o AntGameModule/AntGamemodule.o
-	g++ -std=c++17 -LAntGameModule/libs -lpython3.14 -fpic -shared AntGameModule/AntGamemodule.o out/*.o -o AntGameModule/AntGame.so
+PyCode/AntGame.so: source/AntGamemodule.cpp
+	g++ -std=c++17 -fpic -c source/AntGamemodule.cpp -IPyCode/include -o PyCode/AntGamemodule.o
+	g++ -std=c++17 -LPyCode/libs -lpython3.14 -fpic -shared PyCode/AntGamemodule.o out/*.o -o PyCode/AntGame.so
 endif
 
 

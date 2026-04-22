@@ -41,10 +41,12 @@ static PyMemberDef Pos_members[] = {
 
 
 static PyObject* Pos_dist(PyObject* op, PyObject* args);
+static PyObject* Pos_sqrdist(PyObject* op, PyObject* args);
 
 
 static PyMethodDef Pos_methods[] = {
     {"dist", Pos_dist, METH_VARARGS, "Get the distance to another pos."},
+    {"sqrdist", Pos_sqrdist, METH_VARARGS, "Get square distance to another pos."},
     {nullptr, nullptr, 0, nullptr}
 };
 
@@ -81,6 +83,30 @@ static PyObject* Pos_dist(PyObject* op, PyObject* args)
         }
         PosObject* posobj = (PosObject*)arg;
         double result = (posobj->p-self->p).magnitude();
+        return PyFloat_FromDouble(result);
+    }
+    return nullptr;
+}
+
+
+static PyObject* Pos_sqrdist(PyObject* op, PyObject* args)
+{
+    PosObject* self = (PosObject*)op;
+    PyObject* arg = nullptr;
+    if (PyArg_ParseTuple(args, "O:take", &arg))
+    {
+        if (!arg)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the dist function must be a position!");
+            return nullptr;
+        }
+        if (PyObject_TypeCheck(arg, &PosType) == 0)
+        {
+            PyErr_SetString(PyExc_TypeError,"The argument to the dist function must be a position!");
+            return nullptr;
+        }
+        PosObject* posobj = (PosObject*)arg;
+        double result = (posobj->p-self->p).sqrmagnitude();
         return PyFloat_FromDouble(result);
     }
     return nullptr;

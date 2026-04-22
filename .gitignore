@@ -26,3 +26,4 @@ PyCode/backups/
 *.dll
 __pycache__/
 logs/*.log
+source/AntGame.egg-info

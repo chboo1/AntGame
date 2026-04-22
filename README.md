@@ -62,14 +62,13 @@ Things I need to do! It's quite complicated in reality, but in short, this is th
 	+ Communication layer (how the server talks to players and viewers, basically like your keyboard and screen, but over the internet). Done!
 	+ Mechanics layer (how the game actually runs). Done!
 	+ Website/Viewing experience (you can type in the address of the server and watch it all burn down! this is making sure that works fine). Done, but not very pretty!
-- Client library (The thing that makes it easy for you. I doubt any of you want to learn how to code sockets.) Almost done!
-- Fine tuning, playtesting and balancing. (Oh boy. This is when I fix my game after you rip it open with a chainsaw. Thank you, by the way.)
+- Client library (The thing that makes it easy for you. I doubt any of you want to learn how to code sockets.) Done! 
+- Fine tuning, playtesting and balancing. (Oh boy. This is when I fix my game after you rip it open with a chainsaw. Thank you, by the way.) Underway!
 - \[Optional\] Map maker program. This is an optional addition that would let one easily create new maps. Of course, it's not strictly needed, but if I have additional time it's definitely happening!
+- Documentation & Briefing. Stuff that describes what AntGame is, how it works and how to use it. Underway.
 
 - Known specific TODOs:
 	+ Make all the antcs into unsigned shorts instead of unsigned chars - Not sure if I should do this one. 256 ants seems like a nice constraint to have.
 	+ Add more ant types
 	+ Add ^C support for windows
-	+ Test deterministic-ness (Oh god no)
 	+ Add more info to the running player list
-	+ Implement nest stats

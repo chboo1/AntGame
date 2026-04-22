@@ -37,6 +37,7 @@ class DPos
     DPos operator+(DPos);
     DPos operator-(DPos);
     double magnitude();
+    double sqrmagnitude();
 };
 
 class Map;

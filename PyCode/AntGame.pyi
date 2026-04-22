@@ -5,6 +5,9 @@ class Pos:
     def dist(self, other):
         """Returns the distance to another position."""
         pass
+    def sqrdist(self, other):
+        """Returns squared distance to another position. Slightly faster than dist."""
+        pass
 
 
 class AntGameClient:
