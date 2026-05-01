@@ -16,8 +16,8 @@ if [[ $# != 4 ]]; then
 fi
 
 for i in {1..4}; do
-    if [[ ! -f AntGameModule/${!i} ]]; then
-        echo "Client file AntGameModule/${!i} does not exist"
+    if [[ ! -f PyCode/${!i} ]]; then
+        echo "Client file PyCode/${!i} does not exist"
         exit 1
     fi
 done
@@ -40,16 +40,16 @@ CLIENT_ARGS=""
 [[ -n "$PORT" ]] && CLIENT_ARGS="$PORT"
 
 # start all 4 in the background, gather the pids, and wait for them to finish
-python3 AntGameModule/$1 $CLIENT_ARGS &
+python3 PyCode/$1 $CLIENT_ARGS &
 pid1=$!
 echo "Player 1 ($1) PID: $pid1"
-python3 AntGameModule/$2 $CLIENT_ARGS &
+python3 PyCode/$2 $CLIENT_ARGS &
 pid2=$!
 echo "Player 2 ($2) PID: $pid2"
-python3 AntGameModule/$3 $CLIENT_ARGS &
+python3 PyCode/$3 $CLIENT_ARGS &
 pid3=$!
 echo "Player 3 ($3) PID: $pid3"
-python3 AntGameModule/$4 $CLIENT_ARGS &
+python3 PyCode/$4 $CLIENT_ARGS &
 pid4=$!
 echo "Player 4 ($4) PID: $pid4"
 
