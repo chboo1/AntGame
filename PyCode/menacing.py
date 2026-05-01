@@ -68,7 +68,7 @@ def onHurt(ma: Ant):
 def onHit(ma: Ant):
     if ma.nearestEnemy() is None:
         ma.goDeliver()
-    elif ma.pos.dist(ma.nearestEnemy().pos) > defaultAnt.attackRange * 3:
+    elif ma.pos.dist(ma.nearestEnemy().pos) > defaultAnt.attackrange * 3:
         ma.goDeliver()
     else:
         ma.followAttack(ma.nearestEnemy())

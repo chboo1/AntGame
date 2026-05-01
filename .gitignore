@@ -1,4 +1,3 @@
-src
 SDL2_image.dll
 SDL2_ttf.dll
 SDL2.dll
@@ -27,3 +26,5 @@ PyCode/backups/
 __pycache__/
 logs/*.log
 source/AntGame.egg-info
+AntGameModule/dist/
+AntGameModule/AntGame.egg-info/
